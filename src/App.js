@@ -6,16 +6,19 @@ import './App.css';
 
 function App() {
   return (
-    <div className="flex flex-col h-screen justify-start items-center bg-gray-100">
-      <div className="w-full text-start py-4 text-amber-900 flex flex-row items-end shadow-lg">
-        <img className="w-30 h-10" src={logo} alt='Logo'></img>
-        <p className="text-amber-950 pl-5 text-end">Enterprise Access Portal</p>
-      </div>
+    
       <Routes>
-        <Route path='/' element={<LoginCard />} />
+        <Route path='/' element={
+          <div className="flex flex-col h-screen justify-start items-center bg-gray-100">
+            <div className="w-full text-start py-4 text-amber-900 flex flex-row items-end shadow-lg">
+              <img className="w-30 h-10" src={logo} alt='Logo'></img>
+              <p className="text-amber-950 pl-5 text-end">Enterprise Access Portal</p>
+            </div>
+            <LoginCard />
+          </div>
+          } />
         <Route path='/admin' element={<AdminTemplate />} />
       </Routes>
-    </div>
   );
 }
 
