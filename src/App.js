@@ -2,11 +2,12 @@ import logo from './assets/images/logo.png';
 import { useState } from 'react';
 import { Routes, Route, useNavigate } from 'react-router-dom';
 import AdminTemplate from './AdminTemplate';
+import Dashboard from './dashboard';
 import './App.css';
 
 function App() {
   return (
-    
+    <>
       <Routes>
         <Route path='/' element={
           <div className="flex flex-col h-screen justify-start items-center bg-gray-100">
@@ -17,8 +18,17 @@ function App() {
             <LoginCard />
           </div>
           } />
-        <Route path='/admin' element={<AdminTemplate />} />
+          <Route element = {<AdminTemplate />}>
+            <Route path='/admin/dashboard' element={<Dashboard />} />
+            <Route path='/admin/userManagement' element={<p>User Management</p>} />
+            <Route path='/admin/userRole' element={<p>User Role</p>} />
+            <Route path='/admin/auditLog' element={<p>Audit Log</p>} />
+            <Route path='/admin/notifications' element={<p>Notifications!</p>} />
+            <Route path='/admin/settings' element={<p>Settings</p>} />
+          </Route>
+        
       </Routes>
+    </>
   );
 }
 
@@ -29,7 +39,7 @@ function LoginCard(){
 
   function onSubmit(){
     // TODO: validate credentials here
-    navigate('/admin');
+    navigate('/admin/dashboard', {replace:true});
   }
 
   return (
