@@ -9,7 +9,7 @@ import AdminDashboard from './dashboards/admin';
 
 import { auth, db } from "./Config/firebase";
 import { signInWithEmailAndPassword, onAuthStateChanged } from "firebase/auth";
-import { collection, query, where, getDocs } from "firebase/firestore";
+import { collection, query, where, getDocs, doc, getDoc } from "firebase/firestore";
 import './App.css';
 
 function App() {
@@ -30,10 +30,32 @@ function App() {
   };
 
   useEffect(() => {
-    onAuthStateChanged(auth, (currentUser) => {
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      if (currentUser) {
+        try {
+          const userDoc = await getDoc(doc(db, "users", currentUser.uid));
+          if (userDoc.exists()) {
+            setRole(userDoc.data().role);
+          } else {
+            const usersRef = collection(db, "users");
+            const q = query(usersRef, where("email", "==", currentUser.email));
+            const querySnapshot = await getDocs(q);
+            if (!querySnapshot.empty) {
+              setRole(querySnapshot.docs[0].data().role);
+            } else {
+              setRole("admin"); // extreme fallback if they aren't in DB but logged in
+            }
+          }
+        } catch (error) {
+          console.error("Error fetching user role:", error);
+        }
+      } else {
+        setRole(null);
+      }
       setUser(currentUser);
       setLoading(false);
     });
+    return () => unsubscribe();
   }, []);
 
   if (loading) return <h1>Loading</h1>;
@@ -51,7 +73,13 @@ function App() {
           </div>
         } />
         <Route element={<AdminTemplate userRole={role} />}>
-          <Route path='/admin/dashboard' element={user ? roleRoutes.dashboard[role] : <Navigate to='/' />} />
+          <Route path='/admin/dashboard' element={user ? (roleRoutes.dashboard[role] || (
+            <div className="p-8 text-center mt-20">
+              <h2 className="text-2xl font-bold text-red-600 mb-4">Dashboard Unavailable</h2>
+              <p>Your role ({role || 'None'}) is not authorized for a dashboard view.</p>
+              <button onClick={() => {auth.signOut(); window.location.href='/';}} className="mt-4 bg-amber-900 text-white px-4 py-2 rounded">Log Out</button>
+            </div>
+          )) : <Navigate to='/' />} />
           <Route path='/admin/userManagement' element={<p>User Management</p>} />
           <Route path='/admin/userRole' element={<p>User Role</p>} />
           <Route path='/admin/auditLog' element={<p>Audit Logs</p>} />
