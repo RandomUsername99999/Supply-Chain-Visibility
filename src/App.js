@@ -126,6 +126,67 @@ function SadDeniedScreen() {
   const [tearDrop, setTearDrop] = useState(false);
 
   useEffect(() => {
+    // --- Sad sound effect via Web Audio API ---
+    const playSadSound = () => {
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+
+        // Mournful descending notes: A4 → F4 → D4 → A3
+        const notes = [440, 349.23, 293.66, 220];
+        const noteDuration = 0.9;
+
+        notes.forEach((freq, i) => {
+          const startTime = ctx.currentTime + i * noteDuration * 0.85;
+
+          // Main oscillator (sine for softness)
+          const osc = ctx.createOscillator();
+          const gainNode = ctx.createGain();
+
+          // Vibrato LFO for a trembling, weeping quality
+          const lfo = ctx.createOscillator();
+          const lfoGain = ctx.createGain();
+          lfo.frequency.value = 4.5;
+          lfoGain.gain.value = 3;
+          lfo.connect(lfoGain);
+          lfoGain.connect(osc.frequency);
+          lfo.start(startTime);
+          lfo.stop(startTime + noteDuration);
+
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(freq, startTime);
+
+          // Soft attack, slow sad decay
+          gainNode.gain.setValueAtTime(0, startTime);
+          gainNode.gain.linearRampToValueAtTime(0.18, startTime + 0.12);
+          gainNode.gain.exponentialRampToValueAtTime(0.001, startTime + noteDuration);
+
+          osc.connect(gainNode);
+          gainNode.connect(ctx.destination);
+
+          osc.start(startTime);
+          osc.stop(startTime + noteDuration);
+        });
+
+        // A long low sob/sigh underneath
+        const sobOsc = ctx.createOscillator();
+        const sobGain = ctx.createGain();
+        sobOsc.type = 'sine';
+        sobOsc.frequency.setValueAtTime(110, ctx.currentTime);
+        sobOsc.frequency.exponentialRampToValueAtTime(80, ctx.currentTime + 3.5);
+        sobGain.gain.setValueAtTime(0, ctx.currentTime);
+        sobGain.gain.linearRampToValueAtTime(0.07, ctx.currentTime + 0.5);
+        sobGain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 3.5);
+        sobOsc.connect(sobGain);
+        sobGain.connect(ctx.destination);
+        sobOsc.start(ctx.currentTime);
+        sobOsc.stop(ctx.currentTime + 3.5);
+      } catch (e) {
+        // Audio not supported — fail silently
+      }
+    };
+
+    playSadSound();
+
     const dotsTimer = setInterval(() => setDots(d => (d + 1) % 4), 600);
     const tearTimer = setInterval(() => setTearDrop(t => !t), 1800);
     return () => { clearInterval(dotsTimer); clearInterval(tearTimer); };

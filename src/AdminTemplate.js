@@ -164,8 +164,8 @@ function VerticalNavbar({ sidebarOpen, userRole }) {
             key={item.label}
             onClick={() => navigate(item.link)}
             className={`w-full flex items-center rounded-[10px] transition-all duration-200 group relative ${isActive
-                ? 'bg-[#4E342E] shadow-[inset_0_2px_4px_rgba(0,0,0,0.1)]'
-                : 'hover:bg-[#4E342E]/40'
+              ? 'bg-[#4E342E] shadow-[inset_0_2px_4px_rgba(0,0,0,0.1)]'
+              : 'hover:bg-[#4E342E]/40'
               }`}
           >
             {/* Accent Bar */}
