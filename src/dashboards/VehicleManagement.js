@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import api from "../api";
+import { db } from "../Config/firebase";
+import { collection, getDocs, addDoc, updateDoc, doc, deleteDoc } from "firebase/firestore";
 import { BiPlus, BiPencil, BiTrash } from "react-icons/bi";
 import { GiTruck } from "react-icons/gi";
 
@@ -20,21 +21,23 @@ function AddVehiclePopup({ onSuccess, onClose }) {
         e.preventDefault();
         setLoading(true);
         try {
-            await api.post('vehicles/', {
+            await addDoc(collection(db, "vehicles"), {
                 plate_number: plateNumber,
                 vehicle_type: vehicleType,
                 make_model: makeModel,
                 manufacturer: manufacturer,
                 year: parseInt(year),
-                capacity: parseFloat(capacity),
-                volume: volume ? parseFloat(volume) : null,
+                capacity_kg: parseFloat(capacity),
+                capacity_volume: volume ? parseFloat(volume) : null,
                 registration_expiry: registrationExpiry,
                 insurance_expiry: insuranceExpiry,
-                is_refrigerated: isRefrigerated
+                is_refrigerated: isRefrigerated,
+                status: 'available',
+                created_at: new Date().toISOString()
             });
             onSuccess();
         } catch (error) {
-            alert("Error registering vehicle: " + (error?.response?.data?.detail || JSON.stringify(error?.response?.data) || error.message));
+            alert("Error registering vehicle: " + error.message);
         }
         setLoading(false);
     };
@@ -105,8 +108,8 @@ function EditVehiclePopup({ vehicle, onSuccess, onClose }) {
     const [makeModel, setMakeModel] = useState(vehicle.make_model || "");
     const [manufacturer, setManufacturer] = useState(vehicle.manufacturer || "");
     const [year, setYear] = useState(vehicle.year || new Date().getFullYear());
-    const [capacity, setCapacity] = useState(vehicle.capacity || "");
-    const [volume, setVolume] = useState(vehicle.volume || "");
+    const [capacity, setCapacity] = useState(vehicle.capacity_kg || "");
+    const [volume, setVolume] = useState(vehicle.capacity_volume || "");
     const [registrationExpiry, setRegistrationExpiry] = useState(vehicle.registration_expiry || "");
     const [insuranceExpiry, setInsuranceExpiry] = useState(vehicle.insurance_expiry || "");
     const [isRefrigerated, setIsRefrigerated] = useState(vehicle.is_refrigerated || false);
@@ -116,21 +119,23 @@ function EditVehiclePopup({ vehicle, onSuccess, onClose }) {
         e.preventDefault();
         setLoading(true);
         try {
-            await api.patch(`vehicles/${vehicle.id}/`, {
+            const vehicleRef = doc(db, "vehicles", vehicle.id);
+            await updateDoc(vehicleRef, {
                 plate_number: plateNumber,
                 vehicle_type: vehicleType,
                 make_model: makeModel,
                 manufacturer: manufacturer,
                 year: parseInt(year),
-                capacity: parseFloat(capacity),
-                volume: volume ? parseFloat(volume) : null,
+                capacity_kg: parseFloat(capacity),
+                capacity_volume: volume ? parseFloat(volume) : null,
                 registration_expiry: registrationExpiry,
                 insurance_expiry: insuranceExpiry,
-                is_refrigerated: isRefrigerated
+                is_refrigerated: isRefrigerated,
+                updated_at: new Date().toISOString()
             });
             onSuccess();
         } catch (error) {
-            alert("Error updating vehicle: " + (error?.response?.data?.detail || JSON.stringify(error?.response?.data) || error.message));
+            alert("Error updating vehicle: " + error.message);
         }
         setLoading(false);
     };
@@ -203,8 +208,12 @@ export default function VehicleManagement() {
 
     const fetchVehicles = async () => {
         try {
-            const res = await api.get('vehicles/');
-            setVehicles(res.data);
+            const querySnapshot = await getDocs(collection(db, "vehicles"));
+            const vehicleList = querySnapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data()
+            }));
+            setVehicles(vehicleList);
         } catch(e) { console.error(e); }
     };
 
@@ -268,7 +277,7 @@ export default function VehicleManagement() {
                                     </td>
                                     <td className="py-4 px-6">
                                         <p className="text-[12px] font-semibold text-[#5D4037]">{v.make_model} ({v.year})</p>
-                                        <p className="text-[11px] text-[#A1887F]">Cap: {v.capacity}kg | Vol: {v.volume}m³</p>
+                                        <p className="text-[11px] text-[#A1887F]">Cap: {v.capacity_kg}kg | Vol: {v.capacity_volume}m³</p>
                                     </td>
                                     <td className="py-4 px-6">
                                         <span className={v.status === 'Assigned' || v.status === 'In Use' ? "bg-indigo-50 text-indigo-700 text-[10px] font-bold px-2 py-1 rounded-md border border-indigo-100 uppercase tracking-wider" : "bg-green-50 text-green-700 text-[10px] font-bold px-2 py-1 rounded-md border border-green-100 uppercase tracking-wider"}>
@@ -287,8 +296,10 @@ export default function VehicleManagement() {
                                             <button 
                                                 onClick={async () => {
                                                     if(window.confirm(`Delete vehicle ${v.plate_number}? This cannot be undone.`)) {
-                                                        await api.delete(`vehicles/${v.id}/`);
-                                                        fetchVehicles();
+                                                        try {
+                                                            await deleteDoc(doc(db, "vehicles", v.id));
+                                                            fetchVehicles();
+                                                        } catch(e) { alert("Failed to delete vehicle."); }
                                                     }
                                                 }}
                                                 className="text-[#D32F2F] hover:bg-[#FFF8F8] bg-white border border-[#FFCDD2] p-2 rounded-lg"

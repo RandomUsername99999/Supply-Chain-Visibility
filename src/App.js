@@ -8,7 +8,9 @@ import AdminDashboard from './dashboards/admin';
 import UserManagement from './dashboards/UserManagement';
 import VehicleManagement from './dashboards/VehicleManagement';
 import VehicleAssignments from './dashboards/VehicleAssignments';
-import { BiLockAlt, BiShieldQuarter, BiHide, BiShow, BiLoaderAlt, BiCheckShield, BiEnvelope } from 'react-icons/bi';
+import LiveTracker from './dashboards/LiveTracker';
+import LogAudit from './dashboards/LogAudit';
+import { BiLockAlt, BiShieldQuarter, BiHide, BiShow, BiLoaderAlt, BiCheckShield, BiCube, BiEnvelope } from 'react-icons/bi';
 
 
 import { auth, db } from "./Config/firebase";
@@ -104,9 +106,11 @@ function App() {
         } />
         <Route element={<AdminTemplate userRole={role} />}>
           <Route path='/admin/dashboard' element={user ? roleRoutes.dashboard[role] : <Navigate to='/' />} />
-          <Route path='/admin/users' element={<UserManagement />} />
-          <Route path='/admin/vehicles' element={<VehicleManagement />} />
+          <Route path='/admin/livetracker' element={<LiveTracker />} />
+          <Route path='/admin/users' element={role === 'admin' ? <UserManagement /> : <Navigate to='/admin/dashboard' />} />
+          <Route path='/admin/vehicles' element={role === 'admin' ? <VehicleManagement /> : <Navigate to='/admin/dashboard' />} />
           <Route path='/admin/assignments' element={<VehicleAssignments />} />
+          <Route path='/admin/audit-logs' element={role === 'admin' ? <LogAudit /> : <Navigate to='/admin/dashboard' />} />
           <Route path='/admin/reports' element={<p>Reports</p>} />
           <Route path='/admin/profile' element={<p>Profile</p>} />
           <Route path='/admin/settings' element={<p>Settings</p>} />

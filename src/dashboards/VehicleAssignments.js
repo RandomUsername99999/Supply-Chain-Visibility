@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import api from "../api";
+import { db } from "../Config/firebase";
+import { collection, getDocs, addDoc, updateDoc, doc, query, where, orderBy } from "firebase/firestore";
 import { GiPathDistance } from "react-icons/gi";
 import { BiHistory, BiTransferAlt, BiDetail, BiXCircle } from "react-icons/bi";
 
@@ -10,8 +11,14 @@ export function AssignmentHistoryPopup({ vehicleId, onClose }) {
     useEffect(() => {
         const fetchHistory = async () => {
              try {
-                 const res = await api.get(`assignments/vehicle_history/?vehicle_id=${vehicleId}`);
-                 setHistory(res.data);
+                 const q = query(
+                     collection(db, "assignments"), 
+                     where("vehicle_id", "==", vehicleId)
+                 );
+                 const querySnapshot = await getDocs(q);
+                 const historyData = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                 historyData.sort((a,b) => new Date(b.assignment_start_date) - new Date(a.assignment_start_date));
+                 setHistory(historyData);
              } catch(e) {
                  console.error("Failed to fetch history");
              }
@@ -70,12 +77,15 @@ export default function VehicleAssignments() {
 
     const fetchData = async () => {
         try {
-            const [vehRes, usrRes] = await Promise.all([
-                api.get('vehicles/'),
-                api.get('users/')
+            const [vehSnapshot, usrSnapshot] = await Promise.all([
+                getDocs(collection(db, "vehicles")),
+                getDocs(collection(db, "users"))
             ]);
-            setVehicles(vehRes.data);
-            setDrivers(usrRes.data.filter(u => u.role === 'driver'));
+            const vehData = vehSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            const usrData = usrSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            
+            setVehicles(vehData);
+            setDrivers(usrData.filter(u => u.role === 'driver'));
         } catch(e) { console.error(e); }
     };
 
@@ -96,9 +106,29 @@ export default function VehicleAssignments() {
             if(!selectedVehicleId || (!selectedDriverId && assignmentFormType !== 'REVOKE')) {
                 throw new Error("Please select valid fields.");
             }
-            await api.patch(`vehicles/${selectedVehicleId}/`, {
-                assignedDriver: selectedDriverId ? parseInt(selectedDriverId) : null
+            
+            const driverInfo = drivers.find(d => d.id === selectedDriverId);
+            
+            // 1. Update vehicle assigned driver
+            const vehicleRef = doc(db, "vehicles", selectedVehicleId);
+            await updateDoc(vehicleRef, {
+                assignedDriver: selectedDriverId ? selectedDriverId : null,
+                status: selectedDriverId ? 'Assigned' : 'Unassigned',
+                updated_at: new Date().toISOString()
             });
+            
+            // 2. Add an assignment log
+            if (selectedDriverId) {
+                await addDoc(collection(db, "assignments"), {
+                    vehicle_id: selectedVehicleId,
+                    driver_id: selectedDriverId,
+                    driver_username: driverInfo ? driverInfo.username : 'Unknown',
+                    assignment_start_date: new Date().toISOString(),
+                    assignment_end_date: null,
+                    status: 'Active'
+                });
+            }
+            
             alert(assignmentFormType === 'REVOKE' ? "Assignment revoked!" : "Assignment successful!");
             setActivePopup(null);
             fetchData();
@@ -154,8 +184,27 @@ export default function VehicleAssignments() {
                                                 <button 
                                                     onClick={async () => {
                                                         if(window.confirm(`Revoke assignment for ${v.plate_number}?`)) {
-                                                            await api.patch(`vehicles/${v.id}/`, { assignedDriver: null });
-                                                            fetchData();
+                                                            try {
+                                                                // 1. Update vehicle
+                                                                await updateDoc(doc(db, "vehicles", v.id), { 
+                                                                    assignedDriver: null,
+                                                                    status: 'Unassigned',
+                                                                    updated_at: new Date().toISOString()
+                                                                });
+                                                                
+                                                                // 2. Close active assignment
+                                                                const q = query(collection(db, "assignments"), where("vehicle_id", "==", v.id), where("status", "==", "Active"));
+                                                                const activeAssignments = await getDocs(q);
+                                                                activeAssignments.forEach(async (docSnap) => {
+                                                                    await updateDoc(doc(db, "assignments", docSnap.id), {
+                                                                        status: 'Revoked',
+                                                                        assignment_end_date: new Date().toISOString()
+                                                                    });
+                                                                });
+                                                                fetchData();
+                                                            } catch (err) {
+                                                                alert("Failed to revoke assignment");
+                                                            }
                                                         }
                                                     }}
                                                     className="text-[10px] bg-[#FFF8F8] border border-[#FFCDD2] px-2 py-1 rounded text-[#D32F2F] font-bold hover:bg-[#FFEBEE] transition-colors">Revoke</button>

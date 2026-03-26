@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import api from "../api";
+import { db } from "../Config/firebase";
+import { collection, getDocs, addDoc, updateDoc, doc, deleteDoc } from "firebase/firestore";
 import { BiUser, BiPlus, BiPencil, BiTrash } from "react-icons/bi";
 
 function CreateUserPopup({ onClose }) {
@@ -59,11 +60,14 @@ function CreateUserPopup({ onClose }) {
                     };
                 }
             }
-            await api.post('users/', payload);
+            payload.status = 'active';
+            payload.created_at = new Date().toISOString();
+            
+            await addDoc(collection(db, "users"), payload);
             alert("Authority Created Successfully!");
             onClose();
         } catch (error) {
-            alert("Error creating user: " + (error?.response?.data?.detail || JSON.stringify(error?.response?.data) || error.message));
+            alert("Error creating user: " + error.message);
         }
         setLoading(false);
     };
@@ -202,9 +206,9 @@ function AssignRolesPopup({ onClose }) {
         e.preventDefault();
         setLoading(true);
         try {
-            const res = await api.get('users/');
-            const users = res.data;
-            const match = users.find(u => u.email === identifier || u.username === identifier);
+            const querySnapshot = await getDocs(collection(db, "users"));
+            const usersList = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            const match = usersList.find(u => u.email === identifier || u.username === identifier);
             if (match) {
                 setUserDoc(match);
                 setNewRole(match.role);
@@ -222,7 +226,8 @@ function AssignRolesPopup({ onClose }) {
         e.preventDefault();
         try {
             if (!userDoc) return;
-            await api.patch(`users/${userDoc.id}/`, { role: newRole });
+            const userRef = doc(db, "users", userDoc.id);
+            await updateDoc(userRef, { role: newRole, updated_at: new Date().toISOString() });
             alert("Role updated successfully!");
             onClose();
         } catch (error) {
@@ -281,8 +286,9 @@ export default function UserManagement() {
 
     const fetchUsers = async () => {
         try {
-            const res = await api.get('users/');
-            setUsers(res.data);
+            const querySnapshot = await getDocs(collection(db, "users"));
+            const usersList = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setUsers(usersList);
         } catch(e) { console.error(e); }
     };
 
@@ -364,8 +370,10 @@ export default function UserManagement() {
                                             <button 
                                                 onClick={async () => {
                                                     if(window.confirm(`Are you sure you want to delete ${u.username}?`)) {
-                                                        await api.delete(`users/${u.id}/`);
-                                                        fetchUsers();
+                                                        try {
+                                                            await deleteDoc(doc(db, "users", u.id));
+                                                            fetchUsers();
+                                                        } catch(e) { alert("Failed to delete user"); }
                                                     }
                                                 }}
                                                 className="text-[#D32F2F] bg-white border border-[#FFCDD2] hover:bg-[#FFF8F8] p-2 rounded-lg transition-colors shadow-sm"
@@ -401,11 +409,13 @@ export default function UserManagement() {
                                     if (selectedUser.employee) {
                                         payload.employee = selectedUser.employee;
                                     }
-                                    await api.patch(`users/${selectedUser.id}/`, payload);
+                                    payload.updated_at = new Date().toISOString();
+                                    const userRef = doc(db, "users", selectedUser.id);
+                                    await updateDoc(userRef, payload);
                                     fetchUsers();
                                     setActiveAction(null);
                                 } catch(err) {
-                                    alert("Failed to update user.");
+                                    alert("Failed to update user: " + err.message);
                                 }
                             }}>
                                 {editTab === 'account' ? (
