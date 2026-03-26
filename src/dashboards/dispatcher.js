@@ -1,6 +1,17 @@
 import 'leaflet/dist/leaflet.css';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import CustomCard from '../UIComponents/Card';
+import { useState, useEffect } from 'react';
+import api from '../api';
+import L from 'leaflet';
+
+// Fix typical Leaflet icon paths
+delete L.Icon.Default.prototype._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: require('leaflet/dist/images/marker-icon-2x.png'),
+  iconUrl: require('leaflet/dist/images/marker-icon.png'),
+  shadowUrl: require('leaflet/dist/images/marker-shadow.png'),
+});
 
 export default function auditLogs(){
     return <>
@@ -17,15 +28,26 @@ export default function auditLogs(){
 const VehicleMap = () => {
   const initialCenter = [6.9271, 79.8612];
   const initialZoom = 13;
-  const vehicles = [
-  { id: 1, lat: 6.91, lng: 79.9, name: 'Cold Truck', type: 'AC Truck' },
-  { id: 2, lat: 6.909603, lng: 79.885671, name: 'Big Truck', type: 'truck' },
-  // ... more vehicles
-];
+  const [vehicles, setVehicles] = useState([]);
 
+  useEffect(() => {
+    const fetchLocations = async () => {
+      try {
+        const response = await api.get('tracking/locations/');
+        setVehicles(response.data);
+      } catch (error) {
+        console.error("Error fetching locations:", error);
+      }
+    };
+
+    fetchLocations();
+    // Poll every 3 seconds
+    const interval = setInterval(fetchLocations, 3000);
+    return () => clearInterval(interval);
+  }, []);
 
   return (
-    <MapContainer center={initialCenter} zoom={initialZoom} style={{ height: "200px", width: "40%" }}>
+    <MapContainer center={initialCenter} zoom={initialZoom} style={{ height: "400px", width: "100%", marginTop: '20px', borderRadius: '10px' }}>
       <TileLayer
         attribution='&copy; [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors'
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -33,14 +55,18 @@ const VehicleMap = () => {
 
       {vehicles.map((vehicle) => (
         <Marker
-          key={vehicle.id}
-          position={[vehicle.lat, vehicle.lng]}
+          key={vehicle.driver_id}
+          position={[vehicle.lat || 0, vehicle.lng || 0]}
         >
           <Popup>
-            {vehicle.name} <br /> {vehicle.type}
+            <strong>Driver:</strong> {vehicle.driver_id} <br />
+            <strong>Vehicle:</strong> {vehicle.vehicle_id} <br />
+            <strong>Status:</strong> {vehicle.status} <br />
+            <strong>Updated:</strong> {new Date(vehicle.timestamp).toLocaleTimeString()}
           </Popup>
         </Marker>
       ))}
     </MapContainer>
   );
 };
+

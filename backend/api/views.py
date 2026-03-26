@@ -119,3 +119,41 @@ class VehicleAssignmentViewSet(viewsets.ReadOnlyModelViewSet):
         qs = self.queryset.filter(vehicle_id=vehicle_id)
         return Response(self.get_serializer(qs, many=True).data)
 
+from django.core.cache import cache
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import AllowAny
+
+@api_view(['POST'])
+@permission_classes([AllowAny]) # In production this would require authentication
+def tracking_location(request):
+    """
+    Ingest GPS location from Flutter app and store it in Django local memory cache.
+    """
+    data = request.data
+    driver_id = data.get('driver_id')
+    
+    if not driver_id:
+        return Response({'status': 'error', 'message': 'driver_id required'}, status=status.HTTP_400_BAD_REQUEST)
+        
+    locations = cache.get('active_locations', {})
+    locations[driver_id] = {
+        'driver_id': driver_id,
+        'vehicle_id': data.get('vehicle_id'),
+        'lat': data.get('latitude'),
+        'lng': data.get('longitude'),
+        'timestamp': data.get('timestamp'),
+        'status': data.get('status')
+    }
+    cache.set('active_locations', locations, timeout=86400) # keep for 1 day
+    return Response({'status': 'success', 'message': 'Location logged'}, status=status.HTTP_202_ACCEPTED)
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def get_locations(request):
+    """
+    Endpoint for React dashboard to poll periodically for the latest locations.
+    """
+    locations = cache.get('active_locations', {})
+    return Response(list(locations.values()))
+
+

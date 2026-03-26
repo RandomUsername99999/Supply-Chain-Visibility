@@ -1,13 +1,14 @@
 import { SlSettings } from 'react-icons/sl';
 import { BiBell, BiUser, BiMenu, BiSearch, BiChevronDown } from 'react-icons/bi';
 import { GiBoxUnpacking, GiTruck, GiPathDistance } from 'react-icons/gi';
-import { MdDashboard, MdMap } from 'react-icons/md';
+import { MdDashboard, MdMap, MdLocationOn } from 'react-icons/md';
 import logo from './assets/images/logo.svg';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import { useState } from 'react';
 
 const navItems = [
   { label: "Dashboard",       icon: <MdDashboard />, link: "/admin/dashboard" },
+  { label: "Live Tracker",    icon: <MdLocationOn />,link: "/admin/livetracker" },
   { label: "User Management", icon: <BiUser />,      link: "/admin/users" },
   { label: "Vehicle Mgmt",    icon: <GiTruck />,     link: "/admin/vehicles" },
   { label: "Assignments",     icon: <GiPathDistance />, link: "/admin/assignments" },

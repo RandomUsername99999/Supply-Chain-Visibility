@@ -13,13 +13,6 @@ export default function Dashboard() {
             </div>
         </div>
 
-        {/* Improved KPI Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
-            <CustomCard title="Active Deliveries" value="1,248" info="12% vs last week" icon={<MdLocalShipping/>} trendPositive={true} />
-            <CustomCard title="Fleet Efficiency" value="94.2%" info="2.1% improvement" icon={<GiPathDistance/>} trendPositive={true} />
-            <CustomCard title="delayed shipments" value="14" info="Requires attention" icon={<MdWarning/>} trendPositive={false} />
-            <CustomCard title="Total Revenue (Est)" value="$84.2k" info="4% vs yesterday" icon={<MdOutlinePayments/>} trendPositive={true} />
-        </div>
 
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
             
