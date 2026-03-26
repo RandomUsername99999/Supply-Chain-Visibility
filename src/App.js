@@ -1,5 +1,5 @@
 import logo from './assets/images/logo.svg';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { Routes, Route, useNavigate, Navigate } from 'react-router-dom';
 import AdminTemplate from './AdminTemplate';
 import DriverDashboard from './dashboards/driver';
@@ -121,6 +121,104 @@ function App() {
   );
 }
 
+function SadDeniedScreen() {
+  const [dots, setDots] = useState(0);
+  const [tearDrop, setTearDrop] = useState(false);
+
+  useEffect(() => {
+    const dotsTimer = setInterval(() => setDots(d => (d + 1) % 4), 600);
+    const tearTimer = setInterval(() => setTearDrop(t => !t), 1800);
+    return () => { clearInterval(dotsTimer); clearInterval(tearTimer); };
+  }, []);
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 9999,
+      background: 'linear-gradient(135deg, #1a0a2e 0%, #16213e 40%, #0f3460 100%)',
+      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+      animation: 'sadFadeIn 0.8s ease forwards',
+    }}>
+      <style>{`
+        @keyframes sadFadeIn { from { opacity: 0; filter: blur(12px); } to { opacity: 1; filter: blur(0); } }
+        @keyframes sway { 0%,100% { transform: rotate(-3deg); } 50% { transform: rotate(3deg); } }
+        @keyframes droop { 0%,100% { transform: translateY(0px); } 50% { transform: translateY(8px); } }
+        @keyframes tearFall { 0% { transform: translateY(0) scaleY(1); opacity: 1; } 100% { transform: translateY(60px) scaleY(1.4); opacity: 0; } }
+        @keyframes pulseGlow { 0%,100% { text-shadow: 0 0 20px rgba(100,149,237,0.4); } 50% { text-shadow: 0 0 40px rgba(100,149,237,0.8), 0 0 80px rgba(100,149,237,0.3); } }
+        @keyframes rainDrop { 0% { transform: translateY(-10px); opacity: 0; } 10% { opacity: 0.6; } 90% { opacity: 0.3; } 100% { transform: translateY(100vh); opacity: 0; } }
+        @keyframes sob { 0%,100% { transform: scale(1); } 50% { transform: scale(1.04); } }
+        .rain-drop { position: absolute; width: 1.5px; background: linear-gradient(to bottom, transparent, rgba(100,149,237,0.5)); border-radius: 2px; animation: rainDrop linear infinite; }
+      `}</style>
+
+      {/* Rain drops */}
+      {Array.from({ length: 30 }).map((_, i) => (
+        <div key={i} className="rain-drop" style={{
+          left: `${Math.random() * 100}%`,
+          height: `${40 + Math.random() * 60}px`,
+          animationDuration: `${0.8 + Math.random() * 1.2}s`,
+          animationDelay: `${Math.random() * 2}s`,
+        }} />
+      ))}
+
+      {/* Card */}
+      <div style={{
+        background: 'rgba(255,255,255,0.05)', backdropFilter: 'blur(20px)',
+        border: '1px solid rgba(255,255,255,0.1)', borderRadius: '24px',
+        padding: '48px 56px', textAlign: 'center', maxWidth: '480px', width: '90%',
+        boxShadow: '0 32px 80px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.1)',
+        animation: 'droop 3s ease-in-out infinite',
+        position: 'relative', zIndex: 10,
+      }}>
+
+        {/* Crying face */}
+        <div style={{ fontSize: '90px', lineHeight: 1, animation: 'sway 2.5s ease-in-out infinite', marginBottom: '12px', position: 'relative', display: 'inline-block' }}>
+          😢
+          {/* Tear drop */}
+          {tearDrop && (
+            <div style={{
+              position: 'absolute', bottom: '-8px', left: '52%',
+              width: '8px', height: '14px',
+              background: 'rgba(100,149,237,0.9)', borderRadius: '0 0 50% 50%',
+              animation: 'tearFall 1.6s ease-in forwards',
+            }} />
+          )}
+        </div>
+
+        <div style={{
+          fontSize: '13px', fontWeight: 700, letterSpacing: '0.2em',
+          color: 'rgba(100,149,237,0.7)', textTransform: 'uppercase', marginBottom: '16px',
+        }}>Access Denied</div>
+
+        <h2 style={{
+          fontSize: '26px', fontWeight: 800, color: '#e8eaf6', marginBottom: '16px',
+          animation: 'pulseGlow 2.5s ease-in-out infinite', lineHeight: 1.3,
+        }}>
+          Sorry, you can't access this{'.'.repeat(dots)}
+        </h2>
+
+        <p style={{
+          color: 'rgba(200,200,230,0.65)', fontSize: '14px', lineHeight: 1.8,
+          marginBottom: '28px', animation: 'sob 3s ease-in-out infinite',
+        }}>
+          This portal is reserved for <strong style={{ color: 'rgba(200,200,230,0.9)' }}>authorized administrators</strong> only.
+          <br />Your account doesn't have the necessary permissions.
+        </p>
+
+        <div style={{
+          background: 'rgba(100,149,237,0.08)', border: '1px solid rgba(100,149,237,0.2)',
+          borderRadius: '12px', padding: '14px 20px',
+          color: 'rgba(180,180,220,0.7)', fontSize: '13px', lineHeight: 1.6,
+        }}>
+          💙 Please contact your administrator if you believe<br />this is a mistake.
+        </div>
+      </div>
+
+      <div style={{ marginTop: '28px', color: 'rgba(150,150,200,0.4)', fontSize: '12px', letterSpacing: '0.1em', zIndex: 10 }}>
+        LOGISTICS PORTAL · RESTRICTED ACCESS
+      </div>
+    </div>
+  );
+}
+
 function LoginCard({ sendDataToParent }) {
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
@@ -128,6 +226,7 @@ function LoginCard({ sendDataToParent }) {
   const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [denied, setDenied] = useState(false);
 
   const navigate = useNavigate();
 
@@ -175,6 +274,13 @@ function LoginCard({ sendDataToParent }) {
         }
       }
 
+      // Block drivers and retailers from accessing the portal
+      if (userRole === 'driver' || userRole === 'retailer') {
+        setDenied(true);
+        setIsLoading(false);
+        return;
+      }
+
       sendDataToParent(userRole);
       navigate('/admin/dashboard', { replace: true });
     } catch (err) {
@@ -192,6 +298,8 @@ function LoginCard({ sendDataToParent }) {
       setIsLoading(false);
     }
   };
+
+  if (denied) return <SadDeniedScreen />;
 
   return (
     <div className="w-full max-w-[400px] mx-auto">
