@@ -10,7 +10,7 @@ const itemsList = [
 function Dashboard() {
     return (
         <>
-            <p className='ml-5 font-extrabold text-xl'>Warehouse Operations Centralized Dashboard</p>
+            <p className='ml-5 font-extrabold text-xl'>Logistics Operations Centralized Dashboard</p>
             <div className='flex flex-row'>
         <CustomCard title={"Total Pallets Staged"} value={775} info={"+12.5% this week"} />
         <CustomCard title = "Inventory Accuracy" value = "99.8%" info = "On Target" />
