@@ -141,25 +141,52 @@ function LoginCard({ sendDataToParent }) {
     setIsLoading(true);
 
     try {
-      await signInWithEmailAndPassword(auth, identifier, password);
-      
-      const usersRef = collection(db, "users");
-      const q = query(usersRef, where("email", "==", identifier));
-      const querySnapshot = await getDocs(q);
-
+      // Determine if identifier is an email or a username
+      const isEmail = identifier.includes("@");
+      let loginEmail = identifier;
       let userRole = 'customer';
-      if (!querySnapshot.empty) {
-        userRole = querySnapshot.docs[0].data().role;
+
+      if (!isEmail) {
+        // Look up email by username (case-insensitive)
+        const usersRef = collection(db, "users");
+        const usersSnap = await getDocs(usersRef);
+        const matchedUser = usersSnap.docs
+          .map(d => ({ id: d.id, ...d.data() }))
+          .find(u => (u.username || "").toLowerCase() === identifier.toLowerCase());
+
+        if (!matchedUser) {
+          setError("No account found with that username.");
+          setIsLoading(false);
+          return;
+        }
+        loginEmail = matchedUser.email;
+        userRole = matchedUser.role || 'customer';
+      }
+
+      await signInWithEmailAndPassword(auth, loginEmail, password);
+
+      // If logging in by email, still look up role
+      if (isEmail) {
+        const usersRef = collection(db, "users");
+        const q = query(usersRef, where("email", "==", loginEmail));
+        const querySnapshot = await getDocs(q);
+        if (!querySnapshot.empty) {
+          userRole = querySnapshot.docs[0].data().role;
+        }
       }
 
       sendDataToParent(userRole);
-
       navigate('/admin/dashboard', { replace: true });
     } catch (err) {
-      if (err.code === 'auth/invalid-login-credentials' || err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
-        setError("Invalid credentials. Please try again.");
+      if (
+        err.code === 'auth/invalid-login-credentials' ||
+        err.code === 'auth/user-not-found' ||
+        err.code === 'auth/wrong-password' ||
+        err.code === 'auth/invalid-credential'
+      ) {
+        setError("Invalid credentials. Please check your password and try again.");
       } else {
-        setError(err?.message || "Invalid credentials. Please try again.");
+        setError(err?.message || "Login failed. Please try again.");
       }
     } finally {
       setIsLoading(false);

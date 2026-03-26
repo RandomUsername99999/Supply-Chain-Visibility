@@ -13,7 +13,12 @@ export const firebaseConfig = {
  appId: process.env.REACT_APP_FIREBASE_APP_ID,
  measurementId: process.env.REACT_APP_FIREBASE_MEASUREMENT_ID
 };
-// Initialize Firebase
+// Primary app — used for admin session
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
+
+// Secondary app — used ONLY for creating new user accounts.
+// This prevents the admin from being signed out when registering a new user.
+const appSecondary = initializeApp(firebaseConfig, "Secondary");
+export const authSecondary = getAuth(appSecondary);

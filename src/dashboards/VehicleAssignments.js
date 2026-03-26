@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { db } from "../Config/firebase";
-import { collection, getDocs, addDoc, updateDoc, doc, query, where, orderBy } from "firebase/firestore";
+import { collection, getDocs, addDoc, updateDoc, doc, query, where } from "firebase/firestore";
 import { GiPathDistance } from "react-icons/gi";
 import { BiHistory, BiTransferAlt, BiDetail, BiXCircle } from "react-icons/bi";
 
@@ -70,7 +70,7 @@ export default function VehicleAssignments() {
     const [vehicles, setVehicles] = useState([]);
     const [drivers, setDrivers] = useState([]);
     const [activePopup, setActivePopup] = useState(null);
-    const [assignmentFormType, setAssignmentFormType] = useState('ASSIGN'); // ASSIGN or REASSIGN
+    const [assignmentFormType, setAssignmentFormType] = useState('ASSIGN');
     const [selectedVehicleId, setSelectedVehicleId] = useState("");
     const [selectedDriverId, setSelectedDriverId] = useState("");
     const [loading, setLoading] = useState(false);
@@ -96,7 +96,7 @@ export default function VehicleAssignments() {
     // Filter available vs assigned
     const unassignedVehicles = vehicles.filter(v => !v.assignedDriver);
     const assignedVehicles = vehicles.filter(v => v.assignedDriver);
-    const assignedDriverIds = vehicles.map(v => v.assignedDriver).filter(id => id !== null);
+    const assignedDriverIds = vehicles.map(v => v.assignedDriver).filter(id => id !== null && id !== undefined);
     const availableDrivers = drivers.filter(d => !assignedDriverIds.includes(d.id));
 
     const handleAssignmentUpdate = async (e) => {
@@ -170,45 +170,49 @@ export default function VehicleAssignments() {
                             <p className="text-sm font-semibold text-[#8C7A70] text-center mt-10">No active assignments found.</p>
                         ) : assignedVehicles.map(v => {
                             const drv = drivers.find(d => d.id === v.assignedDriver);
+                            const isRefrigerated = v.is_refrigerated;
                             return (
-                                <div key={v.id} className="bg-[#FCF9F6] border border-[#EAE3D9] p-4 rounded-xl mb-3 flex flex-col sm:flex-row justify-between items-center group hover:bg-[#F5F0EB] transition-colors">
-                                    <div className="flex flex-col w-full">
-                                        <div className="flex justify-between w-full mb-1">
+                                <div key={v.id} className="bg-[#FCF9F6] border border-[#EAE3D9] p-4 rounded-xl mb-3 flex flex-col group hover:bg-[#F5F0EB] transition-colors">
+                                    <div className="flex justify-between w-full mb-1">
+                                        <div className="flex items-center gap-2">
                                             <span className="text-[13px] font-extrabold text-[#3E2723] uppercase">{v.plate_number}</span>
-                                            <span className="text-[12px] font-bold text-[#8D6E63]">{drv ? drv.username : `Driver #${v.assignedDriver}`}</span>
+                                            {isRefrigerated && (
+                                                <span className="text-[10px] text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-100 uppercase tracking-wide font-bold">❄️ Cold</span>
+                                            )}
                                         </div>
-                                        <div className="flex justify-between w-full items-center">
-                                            <span className="text-[11px] text-[#A1887F] font-semibold">{v.make_model} - Cap: {v.capacity}kg</span>
-                                            <div className="flex space-x-2 mt-2 sm:mt-0">
-                                                <button onClick={() => setActivePopup(v.id)} className="text-[10px] bg-white border border-[#D7CCC8] px-2 py-1 rounded text-[#5D4037] font-bold hover:bg-[#EAE3D9] transition-colors">Audit</button>
-                                                <button 
-                                                    onClick={async () => {
-                                                        if(window.confirm(`Revoke assignment for ${v.plate_number}?`)) {
-                                                            try {
-                                                                // 1. Update vehicle
-                                                                await updateDoc(doc(db, "vehicles", v.id), { 
-                                                                    assignedDriver: null,
-                                                                    status: 'Unassigned',
-                                                                    updated_at: new Date().toISOString()
+                                        <span className="text-[12px] font-bold text-[#8D6E63]">{drv ? drv.username : `Driver #${v.assignedDriver}`}</span>
+                                    </div>
+                                    <div className="flex justify-between w-full items-center">
+                                        <div className="text-[11px] text-[#A1887F] font-semibold">
+                                            <span>{v.vehicle_type} · {v.make_model}</span>
+                                            <span className="ml-2">Cap: {v.capacity_kg ?? '—'}kg | Vol: {v.capacity_volume ?? '—'}m³</span>
+                                        </div>
+                                        <div className="flex space-x-2 mt-2 sm:mt-0">
+                                            <button onClick={() => setActivePopup(v.id)} className="text-[10px] bg-white border border-[#D7CCC8] px-2 py-1 rounded text-[#5D4037] font-bold hover:bg-[#EAE3D9] transition-colors">Audit</button>
+                                            <button 
+                                                onClick={async () => {
+                                                    if(window.confirm(`Revoke assignment for ${v.plate_number}?`)) {
+                                                        try {
+                                                            await updateDoc(doc(db, "vehicles", v.id), { 
+                                                                assignedDriver: null,
+                                                                status: 'Unassigned',
+                                                                updated_at: new Date().toISOString()
+                                                            });
+                                                            const q = query(collection(db, "assignments"), where("vehicle_id", "==", v.id), where("status", "==", "Active"));
+                                                            const activeAssignments = await getDocs(q);
+                                                            for (const docSnap of activeAssignments.docs) {
+                                                                await updateDoc(doc(db, "assignments", docSnap.id), {
+                                                                    status: 'Revoked',
+                                                                    assignment_end_date: new Date().toISOString()
                                                                 });
-                                                                
-                                                                // 2. Close active assignment
-                                                                const q = query(collection(db, "assignments"), where("vehicle_id", "==", v.id), where("status", "==", "Active"));
-                                                                const activeAssignments = await getDocs(q);
-                                                                activeAssignments.forEach(async (docSnap) => {
-                                                                    await updateDoc(doc(db, "assignments", docSnap.id), {
-                                                                        status: 'Revoked',
-                                                                        assignment_end_date: new Date().toISOString()
-                                                                    });
-                                                                });
-                                                                fetchData();
-                                                            } catch (err) {
-                                                                alert("Failed to revoke assignment");
                                                             }
+                                                            fetchData();
+                                                        } catch (err) {
+                                                            alert("Failed to revoke assignment");
                                                         }
-                                                    }}
-                                                    className="text-[10px] bg-[#FFF8F8] border border-[#FFCDD2] px-2 py-1 rounded text-[#D32F2F] font-bold hover:bg-[#FFEBEE] transition-colors">Revoke</button>
-                                            </div>
+                                                    }
+                                                }}
+                                                className="text-[10px] bg-[#FFF8F8] border border-[#FFCDD2] px-2 py-1 rounded text-[#D32F2F] font-bold hover:bg-[#FFEBEE] transition-colors">Revoke</button>
                                         </div>
                                     </div>
                                 </div>
@@ -225,7 +229,11 @@ export default function VehicleAssignments() {
                             <h4 className="text-[12px] font-bold text-[#A1887F] uppercase tracking-wider mb-3">Unassigned Vehicles ({unassignedVehicles.length})</h4>
                             {unassignedVehicles.map(v => (
                                 <div key={v.id} className="text-[12px] font-bold text-[#5D4037] bg-[#FCF9F6] p-2 rounded mb-2 border border-[#F0EBE1] uppercase">
-                                    {v.plate_number} <span className="text-[10px] font-normal lowercase text-[#8C7A70]">({v.make_model})</span>
+                                    <div className="flex items-center gap-1.5">
+                                        {v.plate_number}
+                                        {v.is_refrigerated && <span className="text-[9px] text-blue-600 bg-blue-50 px-1 py-0.5 rounded border border-blue-100 uppercase tracking-wide font-bold">❄️</span>}
+                                    </div>
+                                    <span className="text-[10px] font-normal lowercase text-[#8C7A70] block">({v.vehicle_type}) {v.capacity_kg}kg | {v.capacity_volume ?? '—'}m³</span>
                                 </div>
                             ))}
                         </div>
@@ -251,7 +259,11 @@ export default function VehicleAssignments() {
                                 <label className="block text-[13px] font-bold text-[#8C7A70] mb-1.5 uppercase tracking-wider">Select Available Vehicle</label>
                                 <select value={selectedVehicleId} onChange={e => setSelectedVehicleId(e.target.value)} required className="w-full bg-[#FCF9F6] border border-[#EAE3D9] rounded-xl px-4 py-2.5 text-sm focus:border-[#8D6E63] font-bold text-[#5D4037] outline-none">
                                     <option value="" disabled>-- Select Vehicle --</option>
-                                    {unassignedVehicles.map(v => <option key={v.id} value={v.id}>{v.plate_number}</option>)}
+                                    {unassignedVehicles.map(v => (
+                                        <option key={v.id} value={v.id}>
+                                            {v.plate_number} · {v.vehicle_type}{v.is_refrigerated ? ' ❄️' : ''} · {v.capacity_kg}kg{v.capacity_volume ? ` / ${v.capacity_volume}m³` : ''}
+                                        </option>
+                                    ))}
                                 </select>
                             </div>
                             <div className="mb-5">

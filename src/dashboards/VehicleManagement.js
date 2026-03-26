@@ -4,34 +4,173 @@ import { collection, getDocs, addDoc, updateDoc, doc, deleteDoc } from "firebase
 import { BiPlus, BiPencil, BiTrash } from "react-icons/bi";
 import { GiTruck } from "react-icons/gi";
 
+// --- Validation Helpers ---
+function validatePlateNumber(plate) {
+    // Accepts: 2-3 uppercase letters + 4 digits (e.g. WP1234, ABC1234)
+    // OR 8-digit all-numeric plate
+    const standard = /^[A-Z]{2,3}\d{4}$/;
+    const numeric8 = /^\d{8}$/;
+    return standard.test(plate.toUpperCase().replace(/[-\s]/g, '')) || numeric8.test(plate.replace(/[-\s]/g, ''));
+}
+
+function validateYear(year) {
+    const currentYear = new Date().getFullYear();
+    const y = parseInt(year);
+    return y >= 1900 && y <= currentYear;
+}
+
+function validateFutureDate(dateStr) {
+    if (!dateStr) return false;
+    return new Date(dateStr) > new Date();
+}
+
+function FieldError({ msg }) {
+    if (!msg) return null;
+    return <p className="text-red-500 text-[11px] mt-1 font-semibold">{msg}</p>;
+}
+
+// --- Reusable Vehicle Form Fields ---
+function VehicleFormFields({ state, setState, errors, setErrors }) {
+    const { plateNumber, vehicleType, makeModel, manufacturer, year, capacity, volume, registrationExpiry, insuranceExpiry, isRefrigerated } = state;
+
+    const set = (key, val) => setState(prev => ({ ...prev, [key]: val }));
+    const clearErr = (key) => setErrors(prev => ({ ...prev, [key]: '' }));
+
+    return (
+        <div className="grid grid-cols-2 gap-4">
+            <div className="col-span-2 sm:col-span-1">
+                <label className="block text-[12px] font-bold text-[#8C7A70] mb-1.5 uppercase tracking-wide">License Plate</label>
+                <input
+                    type="text"
+                    value={plateNumber}
+                    onChange={e => { set('plateNumber', e.target.value.toUpperCase()); clearErr('plateNumber'); }}
+                    required
+                    placeholder="e.g. WP1234 or ABC1234"
+                    className={`w-full bg-[#FCF9F6] border ${errors.plateNumber ? 'border-red-400' : 'border-[#EAE3D9]'} rounded-xl px-4 py-2 text-sm focus:border-[#8D6E63] font-bold text-[#3E2723] uppercase outline-none`}
+                />
+                <FieldError msg={errors.plateNumber} />
+            </div>
+            <div className="col-span-2 sm:col-span-1">
+                <label className="block text-[12px] font-bold text-[#8C7A70] mb-1.5 uppercase tracking-wide">Classification</label>
+                <select value={vehicleType} onChange={e => set('vehicleType', e.target.value)} required className="w-full bg-[#FCF9F6] border border-[#EAE3D9] rounded-xl px-4 py-2 text-sm focus:border-[#8D6E63] font-bold text-[#5D4037] outline-none">
+                    <option value="Truck">Heavy Duty Truck</option>
+                    <option value="Van">Cargo Van</option>
+                    <option value="Car">Sedan / Small Courier</option>
+                    <option value="Motorcycle">Two-Wheeler</option>
+                </select>
+            </div>
+            <div className="col-span-2 sm:col-span-1">
+                <label className="block text-[12px] font-bold text-[#8C7A70] mb-1.5 uppercase tracking-wide">Make & Model</label>
+                <input type="text" value={makeModel} onChange={e => set('makeModel', e.target.value)} required className="w-full bg-[#FCF9F6] border border-[#EAE3D9] rounded-xl px-4 py-2 text-sm focus:border-[#8D6E63] outline-none" />
+            </div>
+            <div className="col-span-2 sm:col-span-1">
+                <label className="block text-[12px] font-bold text-[#8C7A70] mb-1.5 uppercase tracking-wide">Manufacturer</label>
+                <input type="text" value={manufacturer} onChange={e => set('manufacturer', e.target.value)} required className="w-full bg-[#FCF9F6] border border-[#EAE3D9] rounded-xl px-4 py-2 text-sm focus:border-[#8D6E63] outline-none" />
+            </div>
+            <div className="col-span-2 sm:col-span-1">
+                <label className="block text-[12px] font-bold text-[#8C7A70] mb-1.5 uppercase tracking-wide">Year</label>
+                <input
+                    type="number"
+                    value={year}
+                    onChange={e => { set('year', e.target.value); clearErr('year'); }}
+                    required
+                    min="1900"
+                    max={new Date().getFullYear()}
+                    className={`w-full bg-[#FCF9F6] border ${errors.year ? 'border-red-400' : 'border-[#EAE3D9]'} rounded-xl px-4 py-2 text-sm focus:border-[#8D6E63] outline-none`}
+                />
+                <FieldError msg={errors.year} />
+            </div>
+            <div className="col-span-2 sm:col-span-1">
+                <label className="block text-[12px] font-bold text-[#8C7A70] mb-1.5 uppercase tracking-wide">Capacity (KG)</label>
+                <input type="number" step="0.01" value={capacity} onChange={e => set('capacity', e.target.value)} required className="w-full bg-[#FCF9F6] border border-[#EAE3D9] rounded-xl px-4 py-2 text-sm focus:border-[#8D6E63] outline-none" />
+            </div>
+            <div className="col-span-2 sm:col-span-1">
+                <label className="block text-[12px] font-bold text-[#8C7A70] mb-1.5 uppercase tracking-wide">Volume (m³)</label>
+                <input type="number" step="0.01" value={volume} onChange={e => set('volume', e.target.value)} className="w-full bg-[#FCF9F6] border border-[#EAE3D9] rounded-xl px-4 py-2 text-sm focus:border-[#8D6E63] outline-none" />
+            </div>
+            <div className="col-span-2 sm:col-span-1">
+                <label className="block text-[12px] font-bold text-[#8C7A70] mb-1.5 uppercase tracking-wide">Reg Expiry</label>
+                <input
+                    type="date"
+                    value={registrationExpiry}
+                    onChange={e => { set('registrationExpiry', e.target.value); clearErr('registrationExpiry'); }}
+                    required
+                    className={`w-full bg-[#FCF9F6] border ${errors.registrationExpiry ? 'border-red-400' : 'border-[#EAE3D9]'} rounded-xl px-4 py-2 text-sm focus:border-[#8D6E63] outline-none`}
+                />
+                <FieldError msg={errors.registrationExpiry} />
+            </div>
+            <div className="col-span-2 sm:col-span-1">
+                <label className="block text-[12px] font-bold text-[#8C7A70] mb-1.5 uppercase tracking-wide">Ins Expiry</label>
+                <input
+                    type="date"
+                    value={insuranceExpiry}
+                    onChange={e => { set('insuranceExpiry', e.target.value); clearErr('insuranceExpiry'); }}
+                    required
+                    className={`w-full bg-[#FCF9F6] border ${errors.insuranceExpiry ? 'border-red-400' : 'border-[#EAE3D9]'} rounded-xl px-4 py-2 text-sm focus:border-[#8D6E63] outline-none`}
+                />
+                <FieldError msg={errors.insuranceExpiry} />
+            </div>
+            <div className="col-span-2 flex items-center mt-2 bg-[#FCF9F6] border border-[#EAE3D9] rounded-xl px-4 py-3">
+                <input type="checkbox" id="isRefrigerated" checked={isRefrigerated} onChange={e => set('isRefrigerated', e.target.checked)} className="mr-3 w-4 h-4 text-[#5D4037] focus:ring-[#8D6E63] rounded" />
+                <label htmlFor="isRefrigerated" className="text-[13px] font-bold text-[#3E2723]">Climate Controlled (Refrigerated) Unit</label>
+            </div>
+        </div>
+    );
+}
+
+function validateVehicleForm(state) {
+    const errors = {};
+    if (!validatePlateNumber(state.plateNumber)) {
+        errors.plateNumber = "Invalid plate. Must be 2-3 uppercase letters + 4 digits (e.g. WP1234) or 8 numeric digits.";
+    }
+    if (!validateYear(state.year)) {
+        errors.year = `Year must be between 1900 and ${new Date().getFullYear()}. Future years are not allowed.`;
+    }
+    if (!validateFutureDate(state.registrationExpiry)) {
+        errors.registrationExpiry = "Registration expiry must be a future date. Expired registrations cannot be accepted.";
+    }
+    if (!validateFutureDate(state.insuranceExpiry)) {
+        errors.insuranceExpiry = "Insurance expiry must be a future date. Expired insurance cannot be accepted.";
+    }
+    return errors;
+}
+
 function AddVehiclePopup({ onSuccess, onClose }) {
-    const [plateNumber, setPlateNumber] = useState("");
-    const [vehicleType, setVehicleType] = useState("Truck");
-    const [makeModel, setMakeModel] = useState("");
-    const [manufacturer, setManufacturer] = useState("");
-    const [year, setYear] = useState(new Date().getFullYear());
-    const [capacity, setCapacity] = useState("");
-    const [volume, setVolume] = useState("");
-    const [registrationExpiry, setRegistrationExpiry] = useState("");
-    const [insuranceExpiry, setInsuranceExpiry] = useState("");
-    const [isRefrigerated, setIsRefrigerated] = useState(false);
+    const [formState, setFormState] = useState({
+        plateNumber: "",
+        vehicleType: "Truck",
+        makeModel: "",
+        manufacturer: "",
+        year: new Date().getFullYear(),
+        capacity: "",
+        volume: "",
+        registrationExpiry: "",
+        insuranceExpiry: "",
+        isRefrigerated: false
+    });
+    const [errors, setErrors] = useState({});
     const [loading, setLoading] = useState(false);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+        const validationErrors = validateVehicleForm(formState);
+        if (Object.keys(validationErrors).length > 0) {
+            setErrors(validationErrors);
+            return;
+        }
         setLoading(true);
         try {
             await addDoc(collection(db, "vehicles"), {
-                plate_number: plateNumber,
-                vehicle_type: vehicleType,
-                make_model: makeModel,
-                manufacturer: manufacturer,
-                year: parseInt(year),
-                capacity_kg: parseFloat(capacity),
-                capacity_volume: volume ? parseFloat(volume) : null,
-                registration_expiry: registrationExpiry,
-                insurance_expiry: insuranceExpiry,
-                is_refrigerated: isRefrigerated,
+                plate_number: formState.plateNumber.toUpperCase().replace(/[-\s]/g, ''),
+                vehicle_type: formState.vehicleType,
+                make_model: formState.makeModel,
+                manufacturer: formState.manufacturer,
+                year: parseInt(formState.year),
+                capacity_kg: parseFloat(formState.capacity),
+                capacity_volume: formState.volume ? parseFloat(formState.volume) : null,
+                registration_expiry: formState.registrationExpiry,
+                insurance_expiry: formState.insuranceExpiry,
+                is_refrigerated: formState.isRefrigerated,
                 status: 'available',
                 created_at: new Date().toISOString()
             });
@@ -44,55 +183,11 @@ function AddVehiclePopup({ onSuccess, onClose }) {
 
     return (
         <div className="fixed inset-0 bg-[#3E2723]/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-            <div className="bg-white p-7 rounded-2xl shadow-[0_20px_60px_rgba(0,0,0,0.15)] w-full max-w-2xl border border-[#F0EBE1] animate-fade-in-up">
+            <div className="bg-white p-7 rounded-2xl shadow-[0_20px_60px_rgba(0,0,0,0.15)] w-full max-w-2xl border border-[#F0EBE1] animate-fade-in-up max-h-[90vh] overflow-y-auto">
                 <h2 className="text-xl font-bold mb-5 text-[#3E2723] flex items-center"><GiTruck className="mr-2 text-[#8D6E63] text-2xl" /> Register Logistics Unit</h2>
-                <form onSubmit={handleSubmit} className="grid grid-cols-2 gap-4">
-                    <div className="col-span-2 sm:col-span-1">
-                        <label className="block text-[12px] font-bold text-[#8C7A70] mb-1.5 uppercase tracking-wide">License Plate</label>
-                        <input type="text" value={plateNumber} onChange={e => setPlateNumber(e.target.value)} required className="w-full bg-[#FCF9F6] border border-[#EAE3D9] rounded-xl px-4 py-2 text-sm focus:border-[#8D6E63] font-bold text-[#3E2723] uppercase outline-none" />
-                    </div>
-                    <div className="col-span-2 sm:col-span-1">
-                        <label className="block text-[12px] font-bold text-[#8C7A70] mb-1.5 uppercase tracking-wide">Classification</label>
-                        <select value={vehicleType} onChange={e => setVehicleType(e.target.value)} required className="w-full bg-[#FCF9F6] border border-[#EAE3D9] rounded-xl px-4 py-2 text-sm focus:border-[#8D6E63] font-bold text-[#5D4037] outline-none">
-                            <option value="Truck">Heavy Duty Truck</option>
-                            <option value="Van">Cargo Van</option>
-                            <option value="Car">Sedan / Small Courier</option>
-                            <option value="Motorcycle">Two-Wheeler</option>
-                        </select>
-                    </div>
-                    <div className="col-span-2 sm:col-span-1">
-                        <label className="block text-[12px] font-bold text-[#8C7A70] mb-1.5 uppercase tracking-wide">Make & Model</label>
-                        <input type="text" value={makeModel} onChange={e => setMakeModel(e.target.value)} required className="w-full bg-[#FCF9F6] border border-[#EAE3D9] rounded-xl px-4 py-2 text-sm focus:border-[#8D6E63] outline-none" />
-                    </div>
-                    <div className="col-span-2 sm:col-span-1">
-                        <label className="block text-[12px] font-bold text-[#8C7A70] mb-1.5 uppercase tracking-wide">Manufacturer</label>
-                        <input type="text" value={manufacturer} onChange={e => setManufacturer(e.target.value)} required className="w-full bg-[#FCF9F6] border border-[#EAE3D9] rounded-xl px-4 py-2 text-sm focus:border-[#8D6E63] outline-none" />
-                    </div>
-                    <div className="col-span-2 sm:col-span-1">
-                        <label className="block text-[12px] font-bold text-[#8C7A70] mb-1.5 uppercase tracking-wide">Year</label>
-                        <input type="number" value={year} onChange={e => setYear(e.target.value)} required className="w-full bg-[#FCF9F6] border border-[#EAE3D9] rounded-xl px-4 py-2 text-sm focus:border-[#8D6E63] outline-none" />
-                    </div>
-                    <div className="col-span-2 sm:col-span-1">
-                        <label className="block text-[12px] font-bold text-[#8C7A70] mb-1.5 uppercase tracking-wide">Capacity (KG)</label>
-                        <input type="number" step="0.01" value={capacity} onChange={e => setCapacity(e.target.value)} required className="w-full bg-[#FCF9F6] border border-[#EAE3D9] rounded-xl px-4 py-2 text-sm focus:border-[#8D6E63] outline-none" />
-                    </div>
-                    <div className="col-span-2 sm:col-span-1">
-                        <label className="block text-[12px] font-bold text-[#8C7A70] mb-1.5 uppercase tracking-wide">Volume (m³)</label>
-                        <input type="number" step="0.01" value={volume} onChange={e => setVolume(e.target.value)} className="w-full bg-[#FCF9F6] border border-[#EAE3D9] rounded-xl px-4 py-2 text-sm focus:border-[#8D6E63] outline-none" />
-                    </div>
-                    <div className="col-span-2 sm:col-span-1">
-                        <label className="block text-[12px] font-bold text-[#8C7A70] mb-1.5 uppercase tracking-wide">Reg Expiry</label>
-                        <input type="date" value={registrationExpiry} onChange={e => setRegistrationExpiry(e.target.value)} required className="w-full bg-[#FCF9F6] border border-[#EAE3D9] rounded-xl px-4 py-2 text-sm focus:border-[#8D6E63] outline-none" />
-                    </div>
-                    <div className="col-span-2 sm:col-span-1">
-                        <label className="block text-[12px] font-bold text-[#8C7A70] mb-1.5 uppercase tracking-wide">Ins Expiry</label>
-                        <input type="date" value={insuranceExpiry} onChange={e => setInsuranceExpiry(e.target.value)} required className="w-full bg-[#FCF9F6] border border-[#EAE3D9] rounded-xl px-4 py-2 text-sm focus:border-[#8D6E63] outline-none" />
-                    </div>
-                    <div className="col-span-2 flex items-center mt-2 bg-[#FCF9F6] border border-[#EAE3D9] rounded-xl px-4 py-3">
-                        <input type="checkbox" id="addRefrigerated" checked={isRefrigerated} onChange={e => setIsRefrigerated(e.target.checked)} className="mr-3 w-4 h-4 text-[#5D4037] focus:ring-[#8D6E63] rounded" />
-                        <label htmlFor="addRefrigerated" className="text-[13px] font-bold text-[#3E2723]">Climate Controlled (Refrigerated) Unit</label>
-                    </div>
-                    <div className="col-span-2 flex justify-end mt-4">
+                <form onSubmit={handleSubmit}>
+                    <VehicleFormFields state={formState} setState={setFormState} errors={errors} setErrors={setErrors} />
+                    <div className="flex justify-end mt-6">
                         <button type="button" onClick={onClose} className="mr-3 px-5 py-2.5 text-sm font-bold text-[#8C7A70] hover:bg-[#F5F0EB] rounded-xl transition-colors">Cancel</button>
                         <button type="submit" disabled={loading} className="bg-[#5D4037] hover:bg-[#4E342E] text-white px-6 py-2.5 rounded-xl shadow-md text-sm font-bold transition-all disabled:opacity-70">Add Fleet Unit</button>
                     </div>
@@ -103,34 +198,42 @@ function AddVehiclePopup({ onSuccess, onClose }) {
 }
 
 function EditVehiclePopup({ vehicle, onSuccess, onClose }) {
-    const [plateNumber, setPlateNumber] = useState(vehicle.plate_number || "");
-    const [vehicleType, setVehicleType] = useState(vehicle.vehicle_type || "Truck");
-    const [makeModel, setMakeModel] = useState(vehicle.make_model || "");
-    const [manufacturer, setManufacturer] = useState(vehicle.manufacturer || "");
-    const [year, setYear] = useState(vehicle.year || new Date().getFullYear());
-    const [capacity, setCapacity] = useState(vehicle.capacity_kg || "");
-    const [volume, setVolume] = useState(vehicle.capacity_volume || "");
-    const [registrationExpiry, setRegistrationExpiry] = useState(vehicle.registration_expiry || "");
-    const [insuranceExpiry, setInsuranceExpiry] = useState(vehicle.insurance_expiry || "");
-    const [isRefrigerated, setIsRefrigerated] = useState(vehicle.is_refrigerated || false);
+    const [formState, setFormState] = useState({
+        plateNumber: vehicle.plate_number || "",
+        vehicleType: vehicle.vehicle_type || "Truck",
+        makeModel: vehicle.make_model || "",
+        manufacturer: vehicle.manufacturer || "",
+        year: vehicle.year || new Date().getFullYear(),
+        capacity: vehicle.capacity_kg || "",
+        volume: vehicle.capacity_volume || "",
+        registrationExpiry: vehicle.registration_expiry || "",
+        insuranceExpiry: vehicle.insurance_expiry || "",
+        isRefrigerated: vehicle.is_refrigerated || false
+    });
+    const [errors, setErrors] = useState({});
     const [loading, setLoading] = useState(false);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+        const validationErrors = validateVehicleForm(formState);
+        if (Object.keys(validationErrors).length > 0) {
+            setErrors(validationErrors);
+            return;
+        }
         setLoading(true);
         try {
             const vehicleRef = doc(db, "vehicles", vehicle.id);
             await updateDoc(vehicleRef, {
-                plate_number: plateNumber,
-                vehicle_type: vehicleType,
-                make_model: makeModel,
-                manufacturer: manufacturer,
-                year: parseInt(year),
-                capacity_kg: parseFloat(capacity),
-                capacity_volume: volume ? parseFloat(volume) : null,
-                registration_expiry: registrationExpiry,
-                insurance_expiry: insuranceExpiry,
-                is_refrigerated: isRefrigerated,
+                plate_number: formState.plateNumber.toUpperCase().replace(/[-\s]/g, ''),
+                vehicle_type: formState.vehicleType,
+                make_model: formState.makeModel,
+                manufacturer: formState.manufacturer,
+                year: parseInt(formState.year),
+                capacity_kg: parseFloat(formState.capacity),
+                capacity_volume: formState.volume ? parseFloat(formState.volume) : null,
+                registration_expiry: formState.registrationExpiry,
+                insurance_expiry: formState.insuranceExpiry,
+                is_refrigerated: formState.isRefrigerated,
                 updated_at: new Date().toISOString()
             });
             onSuccess();
@@ -142,55 +245,11 @@ function EditVehiclePopup({ vehicle, onSuccess, onClose }) {
 
     return (
         <div className="fixed inset-0 bg-[#3E2723]/30 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fade-in">
-            <div className="bg-white p-7 rounded-2xl shadow-[0_20px_60px_rgba(0,0,0,0.15)] w-full max-w-2xl border border-[#F0EBE1] transform scale-100 transition-transform">
+            <div className="bg-white p-7 rounded-2xl shadow-[0_20px_60px_rgba(0,0,0,0.15)] w-full max-w-2xl border border-[#F0EBE1] max-h-[90vh] overflow-y-auto">
                 <h2 className="text-xl font-bold mb-5 text-[#3E2723] flex items-center"><BiPencil className="mr-2 text-[#8D6E63] text-2xl" /> Edit Logistics Unit</h2>
-                <form onSubmit={handleSubmit} className="grid grid-cols-2 gap-4">
-                    <div className="col-span-2 sm:col-span-1">
-                        <label className="block text-[12px] font-bold text-[#8C7A70] mb-1.5 uppercase tracking-wide">License Plate</label>
-                        <input type="text" value={plateNumber} onChange={e => setPlateNumber(e.target.value)} required className="w-full bg-[#FCF9F6] border border-[#EAE3D9] rounded-xl px-4 py-2 text-sm focus:border-[#8D6E63] font-bold text-[#3E2723] uppercase outline-none" />
-                    </div>
-                    <div className="col-span-2 sm:col-span-1">
-                        <label className="block text-[12px] font-bold text-[#8C7A70] mb-1.5 uppercase tracking-wide">Classification</label>
-                        <select value={vehicleType} onChange={e => setVehicleType(e.target.value)} required className="w-full bg-[#FCF9F6] border border-[#EAE3D9] rounded-xl px-4 py-2 text-sm focus:border-[#8D6E63] font-bold text-[#5D4037] outline-none">
-                            <option value="Truck">Heavy Duty Truck</option>
-                            <option value="Van">Cargo Van</option>
-                            <option value="Car">Sedan / Small Courier</option>
-                            <option value="Motorcycle">Two-Wheeler</option>
-                        </select>
-                    </div>
-                    <div className="col-span-2 sm:col-span-1">
-                        <label className="block text-[12px] font-bold text-[#8C7A70] mb-1.5 uppercase tracking-wide">Make & Model</label>
-                        <input type="text" value={makeModel} onChange={e => setMakeModel(e.target.value)} required className="w-full bg-[#FCF9F6] border border-[#EAE3D9] rounded-xl px-4 py-2 text-sm focus:border-[#8D6E63] outline-none" />
-                    </div>
-                    <div className="col-span-2 sm:col-span-1">
-                        <label className="block text-[12px] font-bold text-[#8C7A70] mb-1.5 uppercase tracking-wide">Manufacturer</label>
-                        <input type="text" value={manufacturer} onChange={e => setManufacturer(e.target.value)} required className="w-full bg-[#FCF9F6] border border-[#EAE3D9] rounded-xl px-4 py-2 text-sm focus:border-[#8D6E63] outline-none" />
-                    </div>
-                    <div className="col-span-2 sm:col-span-1">
-                        <label className="block text-[12px] font-bold text-[#8C7A70] mb-1.5 uppercase tracking-wide">Year</label>
-                        <input type="number" value={year} onChange={e => setYear(e.target.value)} required className="w-full bg-[#FCF9F6] border border-[#EAE3D9] rounded-xl px-4 py-2 text-sm focus:border-[#8D6E63] outline-none" />
-                    </div>
-                    <div className="col-span-2 sm:col-span-1">
-                        <label className="block text-[12px] font-bold text-[#8C7A70] mb-1.5 uppercase tracking-wide">Capacity (KG)</label>
-                        <input type="number" step="0.01" value={capacity} onChange={e => setCapacity(e.target.value)} required className="w-full bg-[#FCF9F6] border border-[#EAE3D9] rounded-xl px-4 py-2 text-sm focus:border-[#8D6E63] outline-none" />
-                    </div>
-                    <div className="col-span-2 sm:col-span-1">
-                        <label className="block text-[12px] font-bold text-[#8C7A70] mb-1.5 uppercase tracking-wide">Volume (m³)</label>
-                        <input type="number" step="0.01" value={volume} onChange={e => setVolume(e.target.value)} className="w-full bg-[#FCF9F6] border border-[#EAE3D9] rounded-xl px-4 py-2 text-sm focus:border-[#8D6E63] outline-none" />
-                    </div>
-                    <div className="col-span-2 sm:col-span-1">
-                        <label className="block text-[12px] font-bold text-[#8C7A70] mb-1.5 uppercase tracking-wide">Reg Expiry</label>
-                        <input type="date" value={registrationExpiry} onChange={e => setRegistrationExpiry(e.target.value)} required className="w-full bg-[#FCF9F6] border border-[#EAE3D9] rounded-xl px-4 py-2 text-sm focus:border-[#8D6E63] outline-none" />
-                    </div>
-                    <div className="col-span-2 sm:col-span-1">
-                        <label className="block text-[12px] font-bold text-[#8C7A70] mb-1.5 uppercase tracking-wide">Ins Expiry</label>
-                        <input type="date" value={insuranceExpiry} onChange={e => setInsuranceExpiry(e.target.value)} required className="w-full bg-[#FCF9F6] border border-[#EAE3D9] rounded-xl px-4 py-2 text-sm focus:border-[#8D6E63] outline-none" />
-                    </div>
-                    <div className="col-span-2 flex items-center mt-2 bg-[#FCF9F6] border border-[#EAE3D9] rounded-xl px-4 py-3">
-                        <input type="checkbox" id="editRefrigerated" checked={isRefrigerated} onChange={e => setIsRefrigerated(e.target.checked)} className="mr-3 w-4 h-4 text-[#5D4037] focus:ring-[#8D6E63] rounded" />
-                        <label htmlFor="editRefrigerated" className="text-[13px] font-bold text-[#3E2723]">Climate Controlled (Refrigerated) Unit</label>
-                    </div>
-                    <div className="col-span-2 flex justify-end mt-4">
+                <form onSubmit={handleSubmit}>
+                    <VehicleFormFields state={formState} setState={setFormState} errors={errors} setErrors={setErrors} />
+                    <div className="flex justify-end mt-6">
                         <button type="button" onClick={onClose} className="mr-3 px-5 py-2.5 text-sm font-bold text-[#8C7A70] hover:bg-[#F5F0EB] rounded-xl transition-colors">Cancel</button>
                         <button type="submit" disabled={loading} className="bg-[#5D4037] hover:bg-[#4E342E] text-white px-6 py-2.5 rounded-xl shadow-md text-sm font-bold transition-all disabled:opacity-70">Save Changes</button>
                     </div>
@@ -221,9 +280,12 @@ export default function VehicleManagement() {
         fetchVehicles();
     }, []);
 
-    const filteredVehicles = vehicles.filter(v => 
-        (v.plate_number || "").toLowerCase().includes(searchQuery.toLowerCase()) || 
-        (v.vehicle_type || "").toLowerCase().includes(searchQuery.toLowerCase())
+    // Search by plate number OR vehicle type (case-insensitive)
+    const lowerQuery = searchQuery.toLowerCase();
+    const filteredVehicles = vehicles.filter(v =>
+        (v.plate_number || "").toLowerCase().includes(lowerQuery) ||
+        (v.vehicle_type || "").toLowerCase().includes(lowerQuery) ||
+        (v.make_model || "").toLowerCase().includes(lowerQuery)
     );
 
     return (
@@ -249,7 +311,7 @@ export default function VehicleManagement() {
                     <h3 className="text-lg font-bold text-[#3E2723] flex items-center mb-4 sm:mb-0"><GiTruck className="mr-2 text-[#8D6E63] text-2xl"/> Fleet Database</h3>
                     <input 
                         type="text" 
-                        placeholder="Search plate or type..." 
+                        placeholder="Search plate, type, or model..." 
                         value={searchQuery}
                         onChange={e => setSearchQuery(e.target.value)}
                         className="bg-white border border-[#EAE3D9] rounded-[10px] px-4 py-2 text-[13px] w-64 focus:outline-none focus:border-[#8D6E63]"
@@ -277,7 +339,7 @@ export default function VehicleManagement() {
                                     </td>
                                     <td className="py-4 px-6">
                                         <p className="text-[12px] font-semibold text-[#5D4037]">{v.make_model} ({v.year})</p>
-                                        <p className="text-[11px] text-[#A1887F]">Cap: {v.capacity_kg}kg | Vol: {v.capacity_volume}m³</p>
+                                        <p className="text-[11px] text-[#A1887F]">Cap: {v.capacity_kg}kg | Vol: {v.capacity_volume ?? '—'}m³</p>
                                     </td>
                                     <td className="py-4 px-6">
                                         <span className={v.status === 'Assigned' || v.status === 'In Use' ? "bg-indigo-50 text-indigo-700 text-[10px] font-bold px-2 py-1 rounded-md border border-indigo-100 uppercase tracking-wider" : "bg-green-50 text-green-700 text-[10px] font-bold px-2 py-1 rounded-md border border-green-100 uppercase tracking-wider"}>

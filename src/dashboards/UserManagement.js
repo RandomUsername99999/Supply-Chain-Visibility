@@ -1,12 +1,58 @@
 import { useState, useEffect } from "react";
-import { db } from "../Config/firebase";
+import { db, authSecondary } from "../Config/firebase";
+import { createUserWithEmailAndPassword, signOut } from "firebase/auth";
 import { collection, getDocs, addDoc, updateDoc, doc, deleteDoc } from "firebase/firestore";
 import { BiUser, BiPlus, BiPencil, BiTrash } from "react-icons/bi";
+
+// --- Shared Validation Helpers ---
+function validateNationalId(id) {
+    // Old format: 9 digits + 'V' or 'v'
+    // New format: exactly 12 digits
+    const oldFormat = /^\d{9}[Vv]$/;
+    const newFormat = /^\d{12}$/;
+    return oldFormat.test(id) || newFormat.test(id);
+}
+
+function validatePhone(phone) {
+    // At least 10 digits (strip non-digit chars first for flexibility)
+    const digitsOnly = phone.replace(/\D/g, '');
+    return digitsOnly.length >= 10;
+}
+
+function validateAge(dob) {
+    // User must be at least 18 years old
+    if (!dob) return false;
+    const birthDate = new Date(dob);
+    const today = new Date();
+    const age = today.getFullYear() - birthDate.getFullYear();
+    const monthDiff = today.getMonth() - birthDate.getMonth();
+    const dayDiff = today.getDate() - birthDate.getDate();
+    const actualAge = (monthDiff < 0 || (monthDiff === 0 && dayDiff < 0)) ? age - 1 : age;
+    return actualAge >= 18;
+}
+
+function validateLicenseId(licenseId) {
+    // Must be at least 5 characters and not trivially short (e.g. "123")
+    return licenseId && licenseId.trim().length >= 5;
+}
+
+function validateLicenseExpiry(expiryDate) {
+    // Must be strictly in the future
+    if (!expiryDate) return false;
+    return new Date(expiryDate) > new Date();
+}
+
+// Reusable inline error message component
+function FieldError({ msg }) {
+    if (!msg) return null;
+    return <p className="text-red-500 text-[11px] mt-1 font-semibold">{msg}</p>;
+}
 
 function CreateUserPopup({ onClose }) {
     const [email, setEmail] = useState("");
     const [username, setUsername] = useState("");
     const [password, setPassword] = useState("");
+    const [confirmPassword, setConfirmPassword] = useState("");
     const [role, setRole] = useState("driver");
     
     // Universal Employee fields
@@ -28,12 +74,62 @@ function CreateUserPopup({ onClose }) {
     const [taxId, setTaxId] = useState("");
     
     const [loading, setLoading] = useState(false);
+    const [errors, setErrors] = useState({});
+
+    const validate = () => {
+        const newErrors = {};
+        
+        if (role !== 'customer') {
+            if (!validateNationalId(nationalId)) {
+                newErrors.nationalId = "National ID must be 9 digits + V (old) or 12 digits (new). e.g. 123456789V or 123456789012";
+            }
+            if (!validatePhone(contact)) {
+                newErrors.contact = "Contact number must have at least 10 digits.";
+            }
+            if (!validateAge(dob)) {
+                newErrors.dob = "User must be at least 18 years old.";
+            }
+        } else {
+            if (!validatePhone(contact)) {
+                newErrors.contact = "Phone number must have at least 10 digits.";
+            }
+        }
+
+        if (role === 'driver') {
+            if (!validateLicenseId(licenseId)) {
+                newErrors.licenseId = "License ID must be at least 5 characters (e.g. B1234567).";
+            }
+            if (!validateLicenseExpiry(licenseExpiry)) {
+                newErrors.licenseExpiry = "License expiry date must be in the future. An expired license cannot be accepted.";
+            }
+        }
+
+        setErrors(newErrors);
+        return Object.keys(newErrors).length === 0;
+    };
 
     const handleCreate = async (e) => {
         e.preventDefault();
+        if (password !== confirmPassword) {
+            setErrors(prev => ({ ...prev, password: "Passwords do not match." }));
+            return;
+        }
+        if (password.length < 6) {
+            setErrors(prev => ({ ...prev, password: "Password must be at least 6 characters." }));
+            return;
+        }
+        if (!validate()) return;
         setLoading(true);
         try {
-            const payload = { email, username, password, role };
+            // 1. Create Firebase Auth account using secondary instance
+            //    (so the admin's own session is NOT affected)
+            const userCredential = await createUserWithEmailAndPassword(authSecondary, email, password);
+            const newUid = userCredential.user.uid;
+            // Sign out the secondary instance immediately after creation
+            await signOut(authSecondary);
+
+            // 2. Save profile to Firestore — NO password stored
+            const payload = { email, username, role, uid: newUid };
             
             if (role === 'customer') {
                 payload.customer = {
@@ -67,7 +163,15 @@ function CreateUserPopup({ onClose }) {
             alert("Authority Created Successfully!");
             onClose();
         } catch (error) {
-            alert("Error creating user: " + error.message);
+            if (error.code === 'auth/email-already-in-use') {
+                alert("Error: This email is already registered in the system.");
+            } else if (error.code === 'auth/weak-password') {
+                alert("Error: Password is too weak. Use at least 6 characters.");
+            } else if (error.code === 'auth/invalid-email') {
+                alert("Error: The email address is invalid.");
+            } else {
+                alert("Error creating user: " + error.message);
+            }
         }
         setLoading(false);
     };
@@ -79,7 +183,7 @@ function CreateUserPopup({ onClose }) {
                 <form onSubmit={handleCreate}>
                     <div className="mb-5">
                         <label className="block text-[13px] font-bold text-[#8C7A70] mb-1.5 uppercase tracking-wider">Role Assignment</label>
-                        <select value={role} onChange={e => setRole(e.target.value)} className="w-full bg-[#FCF9F6] border border-[#EAE3D9] rounded-xl px-4 py-2.5 text-sm focus:border-[#8D6E63] focus:ring-4 focus:ring-[#8D6E63]/20 outline-none transition-all font-semibold text-[#5D4037]">
+                        <select value={role} onChange={e => { setRole(e.target.value); setErrors({}); }} className="w-full bg-[#FCF9F6] border border-[#EAE3D9] rounded-xl px-4 py-2.5 text-sm focus:border-[#8D6E63] focus:ring-4 focus:ring-[#8D6E63]/20 outline-none transition-all font-semibold text-[#5D4037]">
                             <option value="admin">Administrator</option>
                             <option value="manager">Manager</option>
                             <option value="dispatcher">Dispatcher</option>
@@ -99,7 +203,12 @@ function CreateUserPopup({ onClose }) {
                         </div>
                         <div className="col-span-2 sm:col-span-1">
                             <label className="block text-[13px] font-bold text-[#8C7A70] mb-1.5 uppercase tracking-wider">Password</label>
-                            <input type="password" value={password} onChange={e => setPassword(e.target.value)} required className="w-full bg-[#FCF9F6] border border-[#EAE3D9] rounded-xl px-4 py-2.5 text-sm outline-none" />
+                            <input type="password" value={password} onChange={e => { setPassword(e.target.value); setErrors(p => ({...p, password: ''})); }} required minLength={6} placeholder="Min. 6 characters" className={`w-full bg-[#FCF9F6] border ${errors.password ? 'border-red-400' : 'border-[#EAE3D9]'} rounded-xl px-4 py-2.5 text-sm outline-none`} />
+                            <FieldError msg={errors.password} />
+                        </div>
+                        <div className="col-span-2 sm:col-span-1">
+                            <label className="block text-[13px] font-bold text-[#8C7A70] mb-1.5 uppercase tracking-wider">Confirm Password</label>
+                            <input type="password" value={confirmPassword} onChange={e => { setConfirmPassword(e.target.value); setErrors(p => ({...p, password: ''})); }} required placeholder="Re-enter password" className={`w-full bg-[#FCF9F6] border ${errors.password ? 'border-red-400' : 'border-[#EAE3D9]'} rounded-xl px-4 py-2.5 text-sm outline-none`} />
                         </div>
                     </div>
 
@@ -117,7 +226,8 @@ function CreateUserPopup({ onClose }) {
                                 </div>
                                 <div className="col-span-2 sm:col-span-1">
                                     <label className="block text-[13px] font-bold text-[#8C7A70] mb-1.5 uppercase tracking-wider">Phone Number</label>
-                                    <input type="text" value={contact} onChange={e => setContact(e.target.value)} required className="w-full bg-[#FCF9F6] border border-[#EAE3D9] rounded-xl px-4 py-2.5 text-sm outline-none" />
+                                    <input type="text" value={contact} onChange={e => { setContact(e.target.value); setErrors(p => ({...p, contact: ''})); }} required className={`w-full bg-[#FCF9F6] border ${errors.contact ? 'border-red-400' : 'border-[#EAE3D9]'} rounded-xl px-4 py-2.5 text-sm outline-none`} />
+                                    <FieldError msg={errors.contact} />
                                 </div>
                                 <div className="col-span-2 sm:col-span-1">
                                     <label className="block text-[13px] font-bold text-[#8C7A70] mb-1.5 uppercase tracking-wider">Tax ID (Optional)</label>
@@ -139,11 +249,13 @@ function CreateUserPopup({ onClose }) {
                                 </div>
                                 <div className="col-span-2 sm:col-span-1">
                                     <label className="block text-[13px] font-bold text-[#8C7A70] mb-1.5 uppercase tracking-wider">National ID</label>
-                                    <input type="text" value={nationalId} onChange={e => setNationalId(e.target.value)} required className="w-full bg-[#FCF9F6] border border-[#EAE3D9] rounded-xl px-4 py-2.5 text-sm outline-none" />
+                                    <input type="text" value={nationalId} onChange={e => { setNationalId(e.target.value); setErrors(p => ({...p, nationalId: ''})); }} required placeholder="e.g. 123456789V or 123456789012" className={`w-full bg-[#FCF9F6] border ${errors.nationalId ? 'border-red-400' : 'border-[#EAE3D9]'} rounded-xl px-4 py-2.5 text-sm outline-none`} />
+                                    <FieldError msg={errors.nationalId} />
                                 </div>
                                 <div className="col-span-2 sm:col-span-1">
                                     <label className="block text-[13px] font-bold text-[#8C7A70] mb-1.5 uppercase tracking-wider">Contact Number</label>
-                                    <input type="text" value={contact} onChange={e => setContact(e.target.value)} required className="w-full bg-[#FCF9F6] border border-[#EAE3D9] rounded-xl px-4 py-2.5 text-sm outline-none" />
+                                    <input type="text" value={contact} onChange={e => { setContact(e.target.value); setErrors(p => ({...p, contact: ''})); }} required placeholder="e.g. 0712345678" className={`w-full bg-[#FCF9F6] border ${errors.contact ? 'border-red-400' : 'border-[#EAE3D9]'} rounded-xl px-4 py-2.5 text-sm outline-none`} />
+                                    <FieldError msg={errors.contact} />
                                 </div>
                                 <div className="col-span-2">
                                     <label className="block text-[13px] font-bold text-[#8C7A70] mb-1.5 uppercase tracking-wider">Home Address</label>
@@ -151,7 +263,8 @@ function CreateUserPopup({ onClose }) {
                                 </div>
                                 <div className="col-span-2 sm:col-span-1">
                                     <label className="block text-[13px] font-bold text-[#8C7A70] mb-1.5 uppercase tracking-wider">Date of Birth</label>
-                                    <input type="date" value={dob} onChange={e => setDob(e.target.value)} required className="w-full bg-[#FCF9F6] border border-[#EAE3D9] rounded-xl px-4 py-2.5 text-sm outline-none" />
+                                    <input type="date" value={dob} onChange={e => { setDob(e.target.value); setErrors(p => ({...p, dob: ''})); }} required className={`w-full bg-[#FCF9F6] border ${errors.dob ? 'border-red-400' : 'border-[#EAE3D9]'} rounded-xl px-4 py-2.5 text-sm outline-none`} />
+                                    <FieldError msg={errors.dob} />
                                 </div>
                             </div>
                         </>
@@ -163,11 +276,13 @@ function CreateUserPopup({ onClose }) {
                             <div className="grid grid-cols-2 gap-4 mb-4">
                                 <div className="col-span-2 sm:col-span-1">
                                     <label className="block text-[13px] font-bold text-[#8C7A70] mb-1.5 uppercase tracking-wider">License ID</label>
-                                    <input type="text" value={licenseId} onChange={e => setLicenseId(e.target.value)} required className="w-full bg-[#FCF9F6] border border-[#EAE3D9] rounded-xl px-4 py-2.5 text-sm outline-none" />
+                                    <input type="text" value={licenseId} onChange={e => { setLicenseId(e.target.value); setErrors(p => ({...p, licenseId: ''})); }} required placeholder="e.g. B1234567" className={`w-full bg-[#FCF9F6] border ${errors.licenseId ? 'border-red-400' : 'border-[#EAE3D9]'} rounded-xl px-4 py-2.5 text-sm outline-none`} />
+                                    <FieldError msg={errors.licenseId} />
                                 </div>
                                 <div className="col-span-2 sm:col-span-1">
                                     <label className="block text-[13px] font-bold text-[#8C7A70] mb-1.5 uppercase tracking-wider">License Expiry</label>
-                                    <input type="date" value={licenseExpiry} onChange={e => setLicenseExpiry(e.target.value)} required className="w-full bg-[#FCF9F6] border border-[#EAE3D9] rounded-xl px-4 py-2.5 text-sm outline-none" />
+                                    <input type="date" value={licenseExpiry} onChange={e => { setLicenseExpiry(e.target.value); setErrors(p => ({...p, licenseExpiry: ''})); }} required className={`w-full bg-[#FCF9F6] border ${errors.licenseExpiry ? 'border-red-400' : 'border-[#EAE3D9]'} rounded-xl px-4 py-2.5 text-sm outline-none`} />
+                                    <FieldError msg={errors.licenseExpiry} />
                                 </div>
                                 <div className="col-span-2 sm:col-span-1">
                                     <label className="block text-[13px] font-bold text-[#8C7A70] mb-1.5 uppercase tracking-wider">License Type</label>
@@ -179,7 +294,7 @@ function CreateUserPopup({ onClose }) {
                                 </div>
                                 <div className="col-span-2 sm:col-span-1">
                                     <label className="block text-[13px] font-bold text-[#8C7A70] mb-1.5 uppercase tracking-wider">Experience (Years)</label>
-                                    <input type="number" step="0.5" value={experienceYears} onChange={e => setExperienceYears(e.target.value)} required className="w-full bg-[#FCF9F6] border border-[#EAE3D9] rounded-xl px-4 py-2.5 text-sm outline-none" />
+                                    <input type="number" step="0.5" min="0" value={experienceYears} onChange={e => setExperienceYears(e.target.value)} required className="w-full bg-[#FCF9F6] border border-[#EAE3D9] rounded-xl px-4 py-2.5 text-sm outline-none" />
                                 </div>
                             </div>
                         </>
@@ -208,7 +323,12 @@ function AssignRolesPopup({ onClose }) {
         try {
             const querySnapshot = await getDocs(collection(db, "users"));
             const usersList = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            const match = usersList.find(u => u.email === identifier || u.username === identifier);
+            // Case-insensitive search
+            const lowerIdentifier = identifier.toLowerCase();
+            const match = usersList.find(u =>
+                (u.email || "").toLowerCase() === lowerIdentifier ||
+                (u.username || "").toLowerCase() === lowerIdentifier
+            );
             if (match) {
                 setUserDoc(match);
                 setNewRole(match.role);
@@ -243,7 +363,7 @@ function AssignRolesPopup({ onClose }) {
                     <form onSubmit={handleSearch}>
                         <div className="mb-6">
                             <label className="block text-[13px] font-bold text-[#8C7A70] mb-1.5 uppercase tracking-wider">Search Identity (Email/Username)</label>
-                            <input type="text" value={identifier} onChange={e => setIdentifier(e.target.value)} required className="w-full bg-[#FCF9F6] border border-[#EAE3D9] rounded-xl px-4 py-2.5 text-sm focus:border-[#8D6E63] focus:ring-4 focus:ring-[#8D6E63]/20 outline-none transition-all" />
+                            <input type="text" value={identifier} onChange={e => setIdentifier(e.target.value)} required placeholder="Case-insensitive search" className="w-full bg-[#FCF9F6] border border-[#EAE3D9] rounded-xl px-4 py-2.5 text-sm focus:border-[#8D6E63] focus:ring-4 focus:ring-[#8D6E63]/20 outline-none transition-all" />
                         </div>
                         <div className="flex justify-end">
                             <button type="button" onClick={onClose} className="mr-3 px-5 py-2.5 text-sm font-bold text-[#8C7A70] hover:bg-[#F5F0EB] rounded-xl transition-colors">Cancel</button>
@@ -282,7 +402,8 @@ export default function UserManagement() {
     const [users, setUsers] = useState([]);
     const [activeAction, setActiveAction] = useState(null);
     const [selectedUser, setSelectedUser] = useState(null);
-    const [editTab, setEditTab] = useState('account'); // 'account' | 'personnel'
+    const [editTab, setEditTab] = useState('account');
+    const [editErrors, setEditErrors] = useState({});
 
     const fetchUsers = async () => {
         try {
@@ -295,6 +416,41 @@ export default function UserManagement() {
     useEffect(() => {
         fetchUsers();
     }, []);
+
+    const validateEdit = () => {
+        if (!selectedUser) return true;
+        const newErrors = {};
+        const isEmployee = selectedUser.role !== 'customer';
+
+        if (isEmployee) {
+            const empNid = selectedUser.employee?.national_id || "";
+            if (!validateNationalId(empNid)) {
+                newErrors.nationalId = "National ID must be 9 digits + V (old) or 12 digits (new).";
+            }
+            const empContact = selectedUser.employee?.contact_number || "";
+            if (!validatePhone(empContact)) {
+                newErrors.contact = "Contact number must have at least 10 digits.";
+            }
+            const empDob = selectedUser.employee?.date_of_birth || "";
+            if (!validateAge(empDob)) {
+                newErrors.dob = "User must be at least 18 years old.";
+            }
+        }
+
+        if (selectedUser.role === 'driver') {
+            const licNum = selectedUser.driver_profile?.license_number || "";
+            if (!validateLicenseId(licNum)) {
+                newErrors.licenseId = "License ID must be at least 5 characters.";
+            }
+            const licExp = selectedUser.driver_profile?.license_expiry_date || "";
+            if (!validateLicenseExpiry(licExp)) {
+                newErrors.licenseExpiry = "License expiry must be in the future.";
+            }
+        }
+
+        setEditErrors(newErrors);
+        return Object.keys(newErrors).length === 0;
+    };
 
     return (
         <div className="space-y-6 animate-fade-in pb-10">
@@ -347,7 +503,7 @@ export default function UserManagement() {
                                     </td>
                                     <td className="py-4 px-6">
                                         <p className="text-[13px] font-bold text-[#5D4037]">{u.email}</p>
-                                        {u.driver_profile?.phone && <p className="text-[11px] text-[#A1887F]">📞 {u.driver_profile.phone}</p>}
+                                        {u.employee?.contact_number && <p className="text-[11px] text-[#A1887F]">📞 {u.employee.contact_number}</p>}
                                     </td>
                                     <td className="py-4 px-6">
                                         <span className="bg-[#F5F0EB] text-[#5D4037] text-[10px] font-bold px-2 py-1 rounded-md border border-[#D7CCC8] uppercase tracking-wider">
@@ -362,7 +518,7 @@ export default function UserManagement() {
                                     <td className="py-4 px-6 text-right">
                                         <div className="flex justify-end space-x-2">
                                             <button 
-                                                onClick={() => { setSelectedUser(JSON.parse(JSON.stringify(u))); setEditTab('account'); setActiveAction('EDIT_ACCT'); }}
+                                                onClick={() => { setSelectedUser(JSON.parse(JSON.stringify(u))); setEditTab('account'); setEditErrors({}); setActiveAction('EDIT_ACCT'); }}
                                                 className="text-[#8D6E63] hover:text-[#5D4037] bg-white border border-[#EAE3D9] hover:bg-[#F5F0EB] p-2 rounded-lg transition-colors shadow-sm"
                                             >
                                                 <BiPencil />
@@ -390,16 +546,20 @@ export default function UserManagement() {
 
                 {activeAction === 'EDIT_ACCT' && selectedUser && (
                     <div className="fixed inset-0 bg-[#3E2723]/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-                        <div className="bg-white p-7 rounded-2xl shadow-[0_20px_60px_rgba(0,0,0,0.15)] w-full max-w-lg border border-[#F0EBE1] animate-fade-in-up">
+                        <div className="bg-white p-7 rounded-2xl shadow-[0_20px_60px_rgba(0,0,0,0.15)] w-full max-w-lg border border-[#F0EBE1] animate-fade-in-up max-h-[90vh] overflow-y-auto">
                             <h2 className="text-xl font-bold mb-4 text-[#3E2723]">Edit Identity Data</h2>
                             
                             <div className="flex space-x-2 border-b border-[#F0EBE1] mb-5">
                                 <button type="button" onClick={() => setEditTab('account')} className={`px-4 py-2 text-sm font-bold border-b-2 transition-colors ${editTab === 'account' ? 'border-[#5D4037] text-[#5D4037]' : 'border-transparent text-[#8C7A70] hover:text-[#5D4037]'}`}>Account Details</button>
                                 <button type="button" onClick={() => setEditTab('personnel')} className={`px-4 py-2 text-sm font-bold border-b-2 transition-colors ${editTab === 'personnel' ? 'border-[#5D4037] text-[#5D4037]' : 'border-transparent text-[#8C7A70] hover:text-[#5D4037]'}`}>Personnel Records</button>
+                                {selectedUser.role === 'driver' && (
+                                    <button type="button" onClick={() => setEditTab('driver')} className={`px-4 py-2 text-sm font-bold border-b-2 transition-colors ${editTab === 'driver' ? 'border-[#5D4037] text-[#5D4037]' : 'border-transparent text-[#8C7A70] hover:text-[#5D4037]'}`}>Driver Details</button>
+                                )}
                             </div>
 
                             <form onSubmit={async (e) => {
                                 e.preventDefault();
+                                if (!validateEdit()) return;
                                 try {
                                     const payload = {
                                         email: selectedUser.email,
@@ -408,6 +568,9 @@ export default function UserManagement() {
                                     };
                                     if (selectedUser.employee) {
                                         payload.employee = selectedUser.employee;
+                                    }
+                                    if (selectedUser.driver_profile) {
+                                        payload.driver_profile = selectedUser.driver_profile;
                                     }
                                     payload.updated_at = new Date().toISOString();
                                     const userRef = doc(db, "users", selectedUser.id);
@@ -433,7 +596,7 @@ export default function UserManagement() {
                                             <label htmlFor="isActive" className="text-[13px] font-bold text-[#3E2723]">Active System Access</label>
                                         </div>
                                     </>
-                                ) : (
+                                ) : editTab === 'personnel' ? (
                                     <div className="grid grid-cols-2 gap-4">
                                         <div className="col-span-2">
                                             <label className="block text-[13px] font-bold text-[#8C7A70] mb-1.5 uppercase tracking-wider">Full Name</label>
@@ -441,11 +604,13 @@ export default function UserManagement() {
                                         </div>
                                         <div className="col-span-2 sm:col-span-1">
                                             <label className="block text-[13px] font-bold text-[#8C7A70] mb-1.5 uppercase tracking-wider">National ID</label>
-                                            <input type="text" value={selectedUser.employee?.national_id || ""} onChange={e => setSelectedUser({...selectedUser, employee: {...(selectedUser.employee||{}), national_id: e.target.value}})} className="w-full bg-[#FCF9F6] border border-[#EAE3D9] rounded-xl px-4 py-2.5 text-sm outline-none" required />
+                                            <input type="text" placeholder="e.g. 123456789V or 123456789012" value={selectedUser.employee?.national_id || ""} onChange={e => { setSelectedUser({...selectedUser, employee: {...(selectedUser.employee||{}), national_id: e.target.value}}); setEditErrors(p => ({...p, nationalId: ''})); }} className={`w-full bg-[#FCF9F6] border ${editErrors.nationalId ? 'border-red-400' : 'border-[#EAE3D9]'} rounded-xl px-4 py-2.5 text-sm outline-none`} required />
+                                            <FieldError msg={editErrors.nationalId} />
                                         </div>
                                         <div className="col-span-2 sm:col-span-1">
                                             <label className="block text-[13px] font-bold text-[#8C7A70] mb-1.5 uppercase tracking-wider">Contact No.</label>
-                                            <input type="text" value={selectedUser.employee?.contact_number || ""} onChange={e => setSelectedUser({...selectedUser, employee: {...(selectedUser.employee||{}), contact_number: e.target.value}})} className="w-full bg-[#FCF9F6] border border-[#EAE3D9] rounded-xl px-4 py-2.5 text-sm outline-none" required />
+                                            <input type="text" placeholder="e.g. 0712345678" value={selectedUser.employee?.contact_number || ""} onChange={e => { setSelectedUser({...selectedUser, employee: {...(selectedUser.employee||{}), contact_number: e.target.value}}); setEditErrors(p => ({...p, contact: ''})); }} className={`w-full bg-[#FCF9F6] border ${editErrors.contact ? 'border-red-400' : 'border-[#EAE3D9]'} rounded-xl px-4 py-2.5 text-sm outline-none`} required />
+                                            <FieldError msg={editErrors.contact} />
                                         </div>
                                         <div className="col-span-2">
                                             <label className="block text-[13px] font-bold text-[#8C7A70] mb-1.5 uppercase tracking-wider">Address</label>
@@ -453,7 +618,34 @@ export default function UserManagement() {
                                         </div>
                                         <div className="col-span-2 sm:col-span-1">
                                             <label className="block text-[13px] font-bold text-[#8C7A70] mb-1.5 uppercase tracking-wider">Date of Birth</label>
-                                            <input type="date" value={selectedUser.employee?.date_of_birth || ""} onChange={e => setSelectedUser({...selectedUser, employee: {...(selectedUser.employee||{}), date_of_birth: e.target.value}})} className="w-full bg-[#FCF9F6] border border-[#EAE3D9] rounded-xl px-4 py-2.5 text-sm outline-none" required />
+                                            <input type="date" value={selectedUser.employee?.date_of_birth || ""} onChange={e => { setSelectedUser({...selectedUser, employee: {...(selectedUser.employee||{}), date_of_birth: e.target.value}}); setEditErrors(p => ({...p, dob: ''})); }} className={`w-full bg-[#FCF9F6] border ${editErrors.dob ? 'border-red-400' : 'border-[#EAE3D9]'} rounded-xl px-4 py-2.5 text-sm outline-none`} required />
+                                            <FieldError msg={editErrors.dob} />
+                                        </div>
+                                    </div>
+                                ) : (
+                                    // Driver details tab
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="col-span-2 sm:col-span-1">
+                                            <label className="block text-[13px] font-bold text-[#8C7A70] mb-1.5 uppercase tracking-wider">License ID</label>
+                                            <input type="text" placeholder="e.g. B1234567" value={selectedUser.driver_profile?.license_number || ""} onChange={e => { setSelectedUser({...selectedUser, driver_profile: {...(selectedUser.driver_profile||{}), license_number: e.target.value}}); setEditErrors(p => ({...p, licenseId: ''})); }} className={`w-full bg-[#FCF9F6] border ${editErrors.licenseId ? 'border-red-400' : 'border-[#EAE3D9]'} rounded-xl px-4 py-2.5 text-sm outline-none`} required />
+                                            <FieldError msg={editErrors.licenseId} />
+                                        </div>
+                                        <div className="col-span-2 sm:col-span-1">
+                                            <label className="block text-[13px] font-bold text-[#8C7A70] mb-1.5 uppercase tracking-wider">License Expiry</label>
+                                            <input type="date" value={selectedUser.driver_profile?.license_expiry_date || ""} onChange={e => { setSelectedUser({...selectedUser, driver_profile: {...(selectedUser.driver_profile||{}), license_expiry_date: e.target.value}}); setEditErrors(p => ({...p, licenseExpiry: ''})); }} className={`w-full bg-[#FCF9F6] border ${editErrors.licenseExpiry ? 'border-red-400' : 'border-[#EAE3D9]'} rounded-xl px-4 py-2.5 text-sm outline-none`} required />
+                                            <FieldError msg={editErrors.licenseExpiry} />
+                                        </div>
+                                        <div className="col-span-2 sm:col-span-1">
+                                            <label className="block text-[13px] font-bold text-[#8C7A70] mb-1.5 uppercase tracking-wider">License Type</label>
+                                            <select value={selectedUser.driver_profile?.license_type || "heavy_vehicle"} onChange={e => setSelectedUser({...selectedUser, driver_profile: {...(selectedUser.driver_profile||{}), license_type: e.target.value}})} className="w-full bg-[#FCF9F6] border border-[#EAE3D9] rounded-xl px-4 py-2.5 text-sm outline-none">
+                                                <option value="heavy_vehicle">Heavy Vehicle</option>
+                                                <option value="light_vehicle">Light Vehicle</option>
+                                                <option value="trailer">Trailer</option>
+                                            </select>
+                                        </div>
+                                        <div className="col-span-2 sm:col-span-1">
+                                            <label className="block text-[13px] font-bold text-[#8C7A70] mb-1.5 uppercase tracking-wider">Experience (Years)</label>
+                                            <input type="number" step="0.5" min="0" value={selectedUser.driver_profile?.experience_years || 0} onChange={e => setSelectedUser({...selectedUser, driver_profile: {...(selectedUser.driver_profile||{}), experience_years: parseFloat(e.target.value) || 0}})} className="w-full bg-[#FCF9F6] border border-[#EAE3D9] rounded-xl px-4 py-2.5 text-sm outline-none" />
                                         </div>
                                     </div>
                                 )}
