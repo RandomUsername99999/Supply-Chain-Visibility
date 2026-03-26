@@ -1,0 +1,85 @@
+﻿.\venv\Scripts\python.e
+xe : (0.000) 
+At line:1 char:1
++ .\venv\Scripts\python
+.exe test_insert.py > 
+db_debug.log 2>&1
++ ~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~
+    + CategoryInfo     
+         : NotSpecifi  
+  ed: ((0.000) :Stri   
+ ng) [], RemoteExce    
+ption
+    + FullyQualifiedEr 
+   rorId : NativeComm  
+  andError
+ 
+                SELECT 
+VERSION(),
+                       
+@@sql_mode,
+                       
+@@default_storage_engin
+e,
+                       
+@@sql_auto_is_null,
+                       
+@@lower_case_table_name
+s,
+                       
+CONVERT_TZ('2001-01-01 
+01:00:00', 'UTC', 
+'UTC') IS NOT NULL
+            ; 
+args=None; 
+alias=default
+DEBUG:django.db.backend
+s:(0.000) 
+                SELECT 
+VERSION(),
+                       
+@@sql_mode,
+                       
+@@default_storage_engin
+e,
+                       
+@@sql_auto_is_null,
+                       
+@@lower_case_table_name
+s,
+                       
+CONVERT_TZ('2001-01-01 
+01:00:00', 'UTC', 
+'UTC') IS NOT NULL
+            ; 
+args=None; 
+alias=default
+(0.000) SET SESSION 
+TRANSACTION ISOLATION 
+LEVEL READ COMMITTED; 
+args=None; 
+alias=default
+DEBUG:django.db.backend
+s:(0.000) SET SESSION 
+TRANSACTION ISOLATION 
+LEVEL READ COMMITTED; 
+args=None; 
+alias=default
+(0.000) None; 
+args=('TEST999', 
+'Truck', None, None, 
+2026, Decimal('78'), 
+Decimal('98'), 
+'diesel', None, None, 
+None); alias=default
+DEBUG:django.db.backend
+s:(0.000) None; 
+args=('TEST999', 
+'Truck', None, None, 
+2026, Decimal('78'), 
+Decimal('98'), 
+'diesel', None, None, 
+None); alias=default
+FAILED (1064, "You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near 'RETURNING `vehicles`.`vehicle_id`' at line 1")
