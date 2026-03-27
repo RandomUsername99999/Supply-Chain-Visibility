@@ -28,9 +28,11 @@ export default function LiveTracker() {
   const initialZoom = 12;
   const [vehicles, setVehicles] = useState([]);
   const [selectedVehicle, setSelectedVehicle] = useState(null);
-  const [assignments, setAssignments] = useState([]);
+  const [assignments, setAssignments] = useState({});
   const [drivers, setDrivers] = useState({});
   const [vehicleDetails, setVehicleDetails] = useState({});
+  const [driverToVehicleMap, setDriverToVehicleMap] = useState({});
+  const [uidToDocIdMap, setUidToDocIdMap] = useState({});
   const [loading, setLoading] = useState(true);
   const [currentTime, setCurrentTime] = useState(Date.now());
 
@@ -69,43 +71,42 @@ export default function LiveTracker() {
         const assignMap = {};
         assignSnapshot.docs.forEach(doc => {
           const data = doc.data();
-          // Map by both driver_id and vehicle_id to handle various lookup needs
           if (data.driver_id) assignMap[data.driver_id] = data;
           if (data.driver_username) assignMap[data.driver_username] = data;
         });
 
         const driverMap = {};
-        const uidToDocId = {};
+        const uidMap = {};
         userSnapshot.docs.forEach(doc => {
           const data = doc.data();
-          driverMap[doc.id] = data.username || "Unknown Driver";
+          const username = data.username || data.employee?.full_name || "Unknown Driver";
+          driverMap[doc.id] = username;
           if (data.uid) {
-              driverMap[data.uid] = data.username || "Unknown Driver";
-              uidToDocId[data.uid] = doc.id;
+              driverMap[data.uid] = username;
+              uidMap[data.uid] = doc.id;
           }
-          if (data.email) driverMap[data.email] = data.username || "Unknown Driver";
+          if (data.email) driverMap[data.email] = username;
         });
 
         const vehMap = {};
+        const driverToVeh = {};
         vehSnapshot.docs.forEach(doc => {
           const data = doc.data();
-          vehMap[doc.id] = data.vehicle_type || "Unknown Type";
-          if (data.plate_number) vehMap[data.plate_number] = data.vehicle_type || "Unknown Type";
+          const type = data.vehicle_type || "Vehicle";
+          vehMap[doc.id] = type;
+          if (data.plate_number) vehMap[data.plate_number] = type;
+          
+          // Link driver directly if assigned in vehicle doc
+          if (data.assignedDriver) {
+              driverToVeh[data.assignedDriver] = type;
+          }
         });
 
-        // Store mappings in state
-        setAssignments(prev => {
-            // Also index assignments by UID for direct lookup
-            const enrichedAssignments = { ...assignMap };
-            Object.entries(uidToDocId).forEach(([uid, docId]) => {
-                if (assignMap[docId]) {
-                    enrichedAssignments[uid] = assignMap[docId];
-                }
-            });
-            return enrichedAssignments;
-        });
+        setAssignments(assignMap);
         setDrivers(driverMap);
         setVehicleDetails(vehMap);
+        setDriverToVehicleMap(driverToVeh);
+        setUidToDocIdMap(uidMap);
       } catch (err) {
         console.error("Error fetching metadata:", err);
       } finally {
@@ -141,42 +142,33 @@ export default function LiveTracker() {
   const getEnrichedData = (v) => {
     const rawDriverId = v.driver_id || v.id;
     
-    // 1. Identify User (Username and Doc ID)
-    let username = v.driver_id || "Unknown";
-    let userDocId = null;
+    // 1. Identify User (Username)
+    const username = drivers[rawDriverId] || "Unknown";
+    const userDocId = uidToDocIdMap[rawDriverId] || rawDriverId;
 
-    // Search for user in the drivers map (which contains usernames)
-    // and identify their firestore document ID if we have it
-    for (const [key, val] of Object.entries(drivers)) {
-        if (key === rawDriverId) {
-            username = val;
-            // If the key is a UID, we still need the Doc ID for assignments
-            break;
+    // 2. Identify Vehicle Type
+    // Priority: 
+    //   A. Direct manual lookup in vehMap using tracking data's vehicle_id
+    //   B. Lookup by userDocId in the driverToVehicleMap (from vehicle.assignedDriver)
+    //   C. Lookup via assignment record
+    let vehicleType = "Vehicle";
+
+    if (v.vehicle_id) {
+        const normalized = v.vehicle_id.toUpperCase().replace(/[-\s]/g, '');
+        vehicleType = vehicleDetails[v.vehicle_id] || vehicleDetails[normalized] || "Vehicle";
+    }
+
+    if (vehicleType === "Vehicle") {
+        vehicleType = driverToVehicleMap[userDocId] || "Vehicle";
+    }
+
+    if (vehicleType === "Vehicle") {
+        const assignment = assignments[rawDriverId] || assignments[userDocId] || assignments[username] || {};
+        const vId = assignment.vehicle_id;
+        if (vId) {
+            vehicleType = vehicleDetails[vId] || (vId.length > 10 ? vehicleDetails[vId.toUpperCase().replace(/[-\s]/g, '')] : "Vehicle");
         }
     }
-
-    // We need to find the Firestore Doc ID to link to assignments
-    // Let's assume the 'drivers' map keys include both UIDs and DocIDs.
-    // However, assignments only know about DocIDs.
-    // Let's build a more specific map in fetchMetadata if needed, but for now:
-    userDocId = rawDriverId; // Fallback
-
-    // 2. Identify Assignment
-    // Try to find an assignment by the raw ID (which might be doc ID) or by username
-    const assignment = assignments[rawDriverId] || assignments[username] || {};
-    
-    // 3. Identify Vehicle Type
-    // The vehicle_id could be a doc ID in the tracking data or in the assignment
-    let vehicleLookupKey = v.vehicle_id || assignment.vehicle_id;
-    
-    // Normalize if it looks like a plate number (uppercase, no spaces)
-    if (vehicleLookupKey && typeof vehicleLookupKey === 'string') {
-        const normalizedKey = vehicleLookupKey.toUpperCase().replace(/[-\s]/g, '');
-        // Try the normalized key if the raw one fails
-        vehicleLookupKey = vehicleDetails[vehicleLookupKey] ? vehicleLookupKey : normalizedKey;
-    }
-    
-    const vehicleType = vehicleDetails[vehicleLookupKey] || "Vehicle";
 
     const lastUpdate = v.timestamp ? new Date(v.timestamp).getTime() : 0;
     const isStale = (currentTime - lastUpdate) > STALE_THRESHOLD;
