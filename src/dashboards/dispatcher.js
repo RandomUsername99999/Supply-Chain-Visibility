@@ -3,7 +3,7 @@ import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import CustomCard from '../UIComponents/Card';
 import { useState, useEffect } from 'react';
 import { db } from "../Config/firebase";
-import { collection, getDocs, addDoc } from "firebase/firestore";
+import { collection, onSnapshot, query } from "firebase/firestore";
 import L from 'leaflet';
 
 // Fix typical Leaflet icon paths
@@ -32,38 +32,19 @@ const VehicleMap = () => {
   const [vehicles, setVehicles] = useState([]);
 
   useEffect(() => {
-    const fetchLocations = async () => {
-      try {
-        const querySnapshot = await getDocs(collection(db, "tracking_locations"));
-        
-        if (querySnapshot.empty) {
-          // Seed initial tracking locations if database is completely empty
-          const initialLocations = [
-            { driver_id: "DRV-1001", vehicle_id: "TRK-9821", lat: 6.9271, lng: 79.8612, status: "in_transit", timestamp: new Date().toISOString() },
-            { driver_id: "DRV-1002", vehicle_id: "VAN-4432", lat: 6.8649, lng: 79.8997, status: "idle", timestamp: new Date().toISOString() },
-            { driver_id: "DRV-1003", vehicle_id: "TRL-1122", lat: 6.9016, lng: 79.8588, status: "in_transit", timestamp: new Date().toISOString() }
-          ];
-          
-          for (const loc of initialLocations) {
-            await addDoc(collection(db, "tracking_locations"), loc);
-          }
-          
-          const newSnapshot = await getDocs(collection(db, "tracking_locations"));
-          const newLocationsData = newSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-          setVehicles(newLocationsData);
-        } else {
-          const locationsData = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-          setVehicles(locationsData);
-        }
-      } catch (error) {
-        console.error("Error fetching locations:", error);
+    const q = query(collection(db, "tracking_locations"));
+    const unsubscribe = onSnapshot(q, (querySnapshot) => {
+      if (!querySnapshot.empty) {
+        const locationsData = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        setVehicles(locationsData);
+      } else {
+        setVehicles([]);
       }
-    };
+    }, (error) => {
+      console.error("Error listening to tracking locations:", error);
+    });
 
-    fetchLocations();
-    // Poll every 3 seconds
-    const interval = setInterval(fetchLocations, 3000);
-    return () => clearInterval(interval);
+    return () => unsubscribe();
   }, []);
 
   return (

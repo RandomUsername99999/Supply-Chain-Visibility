@@ -3,7 +3,7 @@ import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import { db } from "../Config/firebase";
-import { collection, getDocs, addDoc } from "firebase/firestore";
+import { collection, onSnapshot, query } from "firebase/firestore";
 import { BiCar, BiUser, BiRefresh, BiTime } from 'react-icons/bi';
 
 // Fix typical Leaflet icon paths
@@ -29,41 +29,35 @@ export default function LiveTracker() {
   const [vehicles, setVehicles] = useState([]);
   const [selectedVehicle, setSelectedVehicle] = useState(null);
 
-  const fetchLocations = async () => {
-    try {
-      const querySnapshot = await getDocs(collection(db, "tracking_locations"));
-      
-      if (querySnapshot.empty) {
-        // Seed initial tracking locations if database is completely empty
-        const initialLocations = [
-          { driver_id: "DRV-1001", vehicle_id: "TRK-9821", lat: 6.9271, lng: 79.8612, status: "in_transit", timestamp: new Date().toISOString() },
-          { driver_id: "DRV-1002", vehicle_id: "VAN-4432", lat: 6.8649, lng: 79.8997, status: "idle", timestamp: new Date().toISOString() },
-          { driver_id: "DRV-1003", vehicle_id: "TRL-1122", lat: 6.9016, lng: 79.8588, status: "in_transit", timestamp: new Date().toISOString() }
-        ];
-        
-        for (const loc of initialLocations) {
-          await addDoc(collection(db, "tracking_locations"), loc);
-        }
-        
-        // Fetch again after seeding
-        const newSnapshot = await getDocs(collection(db, "tracking_locations"));
-        const newLocationsData = newSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        setVehicles(newLocationsData);
-      } else {
+  useEffect(() => {
+    const q = query(collection(db, "tracking_locations"));
+    const unsubscribe = onSnapshot(q, (querySnapshot) => {
+      if (!querySnapshot.empty) {
         const locationsData = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         setVehicles(locationsData);
+      } else {
+        setVehicles([]);
       }
-    } catch (error) {
-      console.error("Error fetching locations:", error);
-    }
-  };
+    }, (error) => {
+      console.error("Error listening to tracking locations:", error);
+    });
 
-  useEffect(() => {
-    fetchLocations();
-    // Poll every 3 seconds for real-time tracking
-    const interval = setInterval(fetchLocations, 3000);
-    return () => clearInterval(interval);
+    return () => unsubscribe();
   }, []);
+
+  // The fetchLocations function is no longer needed for polling or seeding
+  // but we keep a placeholder for the refresh button if it's still desired
+  // to trigger a re-fetch (though onSnapshot makes it less necessary).
+  // For now, we'll make it trigger a re-subscription if needed, or just remove it.
+  // Given the instruction, the button should probably just trigger a re-render or similar,
+  // but onSnapshot handles real-time updates automatically.
+  // For simplicity, we'll keep the button's onClick as a no-op or remove it if it causes issues.
+  // Let's make it a no-op for now, as onSnapshot is always listening.
+  const handleRefreshClick = () => {
+    console.log("Refresh button clicked. onSnapshot is already listening for real-time updates.");
+    // Optionally, you could force a re-subscription here if needed,
+    // but typically onSnapshot handles everything.
+  };
 
   return (
     <div className="flex flex-col md:flex-row h-full w-full gap-6">
@@ -73,7 +67,7 @@ export default function LiveTracker() {
         <div className="bg-white p-5 rounded-2xl shadow-sm border border-[#EAE3D9]">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-xl font-bold text-[#3E2723]">Live Tracker</h2>
-            <button onClick={fetchLocations} className="text-[#8D6E63] hover:text-[#5D4037] p-2 rounded-full hover:bg-[#F5F0EB] transition-colors" title="Force Refresh">
+            <button onClick={handleRefreshClick} className="text-[#8D6E63] hover:text-[#5D4037] p-2 rounded-full hover:bg-[#F5F0EB] transition-colors" title="Force Refresh">
               <BiRefresh className="text-2xl" />
             </button>
           </div>
