@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import { db } from "../Config/firebase";
-import { collection, onSnapshot, query } from "firebase/firestore";
+import { collection, onSnapshot, query, getDocs, where } from "firebase/firestore";
 import { BiCar, BiUser, BiRefresh, BiTime } from 'react-icons/bi';
 
 // Fix typical Leaflet icon paths
@@ -28,6 +28,93 @@ export default function LiveTracker() {
   const initialZoom = 12;
   const [vehicles, setVehicles] = useState([]);
   const [selectedVehicle, setSelectedVehicle] = useState(null);
+  const [assignments, setAssignments] = useState([]);
+  const [drivers, setDrivers] = useState({});
+  const [vehicleDetails, setVehicleDetails] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [currentTime, setCurrentTime] = useState(Date.now());
+
+  const STALE_THRESHOLD = 5 * 60 * 1000; // 5 minutes in ms
+
+  // Definte a Stale Icon (Gray/Red version)
+  const staleIcon = new L.Icon({
+    iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-grey.png',
+    shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+    iconSize: [25, 41],
+    iconAnchor: [12, 41],
+    popupAnchor: [1, -34],
+    shadowSize: [41, 41]
+  });
+
+  const activeIcon = new L.Icon.Default();
+
+  // Periodic update to refresh staleness every minute
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(Date.now());
+    }, 60000); // 1 minute
+    return () => clearInterval(timer);
+  }, []);
+
+  // Fetch enriched data (Assignments, Drivers, Vehicles) for mapping
+  useEffect(() => {
+    const fetchMetadata = async () => {
+      try {
+        const [assignSnapshot, userSnapshot, vehSnapshot] = await Promise.all([
+          getDocs(query(collection(db, "assignments"), where("status", "==", "Active"))),
+          getDocs(collection(db, "users")),
+          getDocs(collection(db, "vehicles"))
+        ]);
+
+        const assignMap = {};
+        assignSnapshot.docs.forEach(doc => {
+          const data = doc.data();
+          // Map by both driver_id and vehicle_id to handle various lookup needs
+          if (data.driver_id) assignMap[data.driver_id] = data;
+          if (data.driver_username) assignMap[data.driver_username] = data;
+        });
+
+        const driverMap = {};
+        const uidToDocId = {};
+        userSnapshot.docs.forEach(doc => {
+          const data = doc.data();
+          driverMap[doc.id] = data.username || "Unknown Driver";
+          if (data.uid) {
+              driverMap[data.uid] = data.username || "Unknown Driver";
+              uidToDocId[data.uid] = doc.id;
+          }
+          if (data.email) driverMap[data.email] = data.username || "Unknown Driver";
+        });
+
+        const vehMap = {};
+        vehSnapshot.docs.forEach(doc => {
+          const data = doc.data();
+          vehMap[doc.id] = data.vehicle_type || "Unknown Type";
+          if (data.plate_number) vehMap[data.plate_number] = data.vehicle_type || "Unknown Type";
+        });
+
+        // Store mappings in state
+        setAssignments(prev => {
+            // Also index assignments by UID for direct lookup
+            const enrichedAssignments = { ...assignMap };
+            Object.entries(uidToDocId).forEach(([uid, docId]) => {
+                if (assignMap[docId]) {
+                    enrichedAssignments[uid] = assignMap[docId];
+                }
+            });
+            return enrichedAssignments;
+        });
+        setDrivers(driverMap);
+        setVehicleDetails(vehMap);
+      } catch (err) {
+        console.error("Error fetching metadata:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchMetadata();
+  }, []);
 
   useEffect(() => {
     const q = query(collection(db, "tracking_locations"));
@@ -45,18 +132,60 @@ export default function LiveTracker() {
     return () => unsubscribe();
   }, []);
 
-  // The fetchLocations function is no longer needed for polling or seeding
-  // but we keep a placeholder for the refresh button if it's still desired
-  // to trigger a re-fetch (though onSnapshot makes it less necessary).
-  // For now, we'll make it trigger a re-subscription if needed, or just remove it.
-  // Given the instruction, the button should probably just trigger a re-render or similar,
-  // but onSnapshot handles real-time updates automatically.
-  // For simplicity, we'll keep the button's onClick as a no-op or remove it if it causes issues.
-  // Let's make it a no-op for now, as onSnapshot is always listening.
   const handleRefreshClick = () => {
-    console.log("Refresh button clicked. onSnapshot is already listening for real-time updates.");
-    // Optionally, you could force a re-subscription here if needed,
-    // but typically onSnapshot handles everything.
+    setCurrentTime(Date.now());
+    console.log("Refresh button clicked. Current time updated.");
+  };
+
+  // Helper to get driver name, vehicle type, and staleness
+  const getEnrichedData = (v) => {
+    const rawDriverId = v.driver_id || v.id;
+    
+    // 1. Identify User (Username and Doc ID)
+    let username = v.driver_id || "Unknown";
+    let userDocId = null;
+
+    // Search for user in the drivers map (which contains usernames)
+    // and identify their firestore document ID if we have it
+    for (const [key, val] of Object.entries(drivers)) {
+        if (key === rawDriverId) {
+            username = val;
+            // If the key is a UID, we still need the Doc ID for assignments
+            break;
+        }
+    }
+
+    // We need to find the Firestore Doc ID to link to assignments
+    // Let's assume the 'drivers' map keys include both UIDs and DocIDs.
+    // However, assignments only know about DocIDs.
+    // Let's build a more specific map in fetchMetadata if needed, but for now:
+    userDocId = rawDriverId; // Fallback
+
+    // 2. Identify Assignment
+    // Try to find an assignment by the raw ID (which might be doc ID) or by username
+    const assignment = assignments[rawDriverId] || assignments[username] || {};
+    
+    // 3. Identify Vehicle Type
+    // The vehicle_id could be a doc ID in the tracking data or in the assignment
+    let vehicleLookupKey = v.vehicle_id || assignment.vehicle_id;
+    
+    // Normalize if it looks like a plate number (uppercase, no spaces)
+    if (vehicleLookupKey && typeof vehicleLookupKey === 'string') {
+        const normalizedKey = vehicleLookupKey.toUpperCase().replace(/[-\s]/g, '');
+        // Try the normalized key if the raw one fails
+        vehicleLookupKey = vehicleDetails[vehicleLookupKey] ? vehicleLookupKey : normalizedKey;
+    }
+    
+    const vehicleType = vehicleDetails[vehicleLookupKey] || "Vehicle";
+
+    const lastUpdate = v.timestamp ? new Date(v.timestamp).getTime() : 0;
+    const isStale = (currentTime - lastUpdate) > STALE_THRESHOLD;
+
+    return {
+      username,
+      vehicleType,
+      isStale
+    };
   };
 
   return (
@@ -90,8 +219,8 @@ export default function LiveTracker() {
                   <BiUser className="text-xl" />
                 </div>
                 <div>
-                  <p className="text-xs text-[#A1887F] font-semibold uppercase">Driver ID</p>
-                  <p className="text-sm font-bold text-[#3E2723]">{selectedVehicle.driver_id}</p>
+                  <p className="text-xs text-[#A1887F] font-semibold uppercase">Driver Username</p>
+                  <p className="text-sm font-bold text-[#3E2723]">{getEnrichedData(selectedVehicle).username}</p>
                 </div>
               </div>
 
@@ -100,8 +229,8 @@ export default function LiveTracker() {
                   <BiCar className="text-xl" />
                 </div>
                 <div>
-                  <p className="text-xs text-[#A1887F] font-semibold uppercase">Vehicle ID</p>
-                  <p className="text-sm font-bold text-[#3E2723]">{selectedVehicle.vehicle_id}</p>
+                  <p className="text-xs text-[#A1887F] font-semibold uppercase">Vehicle Type</p>
+                  <p className="text-sm font-bold text-[#3E2723]">{getEnrichedData(selectedVehicle).vehicleType}</p>
                 </div>
               </div>
 
@@ -111,7 +240,10 @@ export default function LiveTracker() {
                 </div>
                 <div>
                   <p className="text-xs text-[#A1887F] font-semibold uppercase">Last Updated</p>
-                  <p className="text-sm font-bold text-[#3E2723]">{new Date(selectedVehicle.timestamp).toLocaleTimeString()}</p>
+                  <p className={`text-sm font-bold ${getEnrichedData(selectedVehicle).isStale ? "text-red-600" : "text-[#3E2723]"}`}>
+                    {new Date(selectedVehicle.timestamp).toLocaleTimeString()}
+                    {getEnrichedData(selectedVehicle).isStale && <span className="ml-2 text-[10px] uppercase tracking-tighter">(Stale)</span>}
+                  </p>
                 </div>
               </div>
 
@@ -138,24 +270,33 @@ export default function LiveTracker() {
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
 
-          {vehicles.map((vehicle) => (
-            <Marker
-              key={vehicle.driver_id}
-              position={[vehicle.lat || 0, vehicle.lng || 0]}
-              eventHandlers={{
-                click: () => {
-                  setSelectedVehicle(vehicle);
-                },
-              }}
-            >
-              <Popup>
-                <div className="text-center">
-                  <strong>{vehicle.driver_id}</strong><br/>
-                  <span className="text-gray-500">{vehicle.vehicle_id}</span>
-                </div>
-              </Popup>
-            </Marker>
-          ))}
+          {vehicles.map((vehicle) => {
+            const enriched = getEnrichedData(vehicle);
+            return (
+              <Marker
+                key={vehicle.driver_id}
+                position={[vehicle.lat || 0, vehicle.lng || 0]}
+                icon={enriched.isStale ? staleIcon : activeIcon}
+                eventHandlers={{
+                  click: () => {
+                    setSelectedVehicle(vehicle);
+                  },
+                }}
+              >
+                <Popup>
+                  <div className="text-center">
+                    <strong className={`block ${enriched.isStale ? "text-red-700" : "text-[#3E2723]"}`}>{enriched.username}</strong>
+                    <span className="text-[#8D6E63] font-semibold text-xs">{enriched.vehicleType}</span>
+                    {enriched.isStale && (
+                      <div className="mt-1 text-[10px] font-bold text-red-600 uppercase border-t border-red-100 pt-1">
+                        Connection Stale
+                      </div>
+                    )}
+                  </div>
+                </Popup>
+              </Marker>
+            );
+          })}
           
           {selectedVehicle && (
              <RecenterAutomatically lat={selectedVehicle.lat} lng={selectedVehicle.lng} />
