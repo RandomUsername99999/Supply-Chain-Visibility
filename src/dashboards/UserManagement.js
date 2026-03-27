@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { db, authSecondary } from "../Config/firebase";
 import { createUserWithEmailAndPassword, signOut } from "firebase/auth";
-import { collection, getDocs, addDoc, updateDoc, doc, deleteDoc } from "firebase/firestore";
+import { collection, getDocs, addDoc, updateDoc, doc, deleteDoc, query, where } from "firebase/firestore";
 import { BiUser, BiPlus, BiPencil, BiTrash } from "react-icons/bi";
 
 // --- Shared Validation Helpers ---
@@ -121,6 +121,15 @@ function CreateUserPopup({ onClose }) {
         if (!validate()) return;
         setLoading(true);
         try {
+            // Pre-check for duplicate email in Firestore
+            const q = query(collection(db, "users"), where("email", "==", email));
+            const querySnapshot = await getDocs(q);
+            if (!querySnapshot.empty) {
+                alert("Error: This email is already registered in the system records.");
+                setLoading(false);
+                return;
+            }
+
             // 1. Create Firebase Auth account using secondary instance
             //    (so the admin's own session is NOT affected)
             const userCredential = await createUserWithEmailAndPassword(authSecondary, email, password);

@@ -156,7 +156,7 @@ export default function VehicleAssignments() {
                             setActivePopup('ASSIGNMENT_FORM');
                         }}
                     >
-                        <GiPathDistance className="mr-1.5 text-lg" /> Dispatch New Route
+                        <GiPathDistance className="mr-1.5 text-lg" /> Assign Vehicle
                     </button>
                 </div>
             </div>

@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { db } from "../Config/firebase";
-import { collection, getDocs, addDoc, updateDoc, doc, deleteDoc } from "firebase/firestore";
+import { collection, getDocs, addDoc, updateDoc, doc, deleteDoc, query, where } from "firebase/firestore";
 import { BiPlus, BiPencil, BiTrash } from "react-icons/bi";
 import { GiTruck } from "react-icons/gi";
 
@@ -160,8 +160,17 @@ function AddVehiclePopup({ onSuccess, onClose }) {
         }
         setLoading(true);
         try {
+            const normalizedPlate = formState.plateNumber.toUpperCase().replace(/[-\s]/g, '');
+            const q = query(collection(db, "vehicles"), where("plate_number", "==", normalizedPlate));
+            const querySnapshot = await getDocs(q);
+            if (!querySnapshot.empty) {
+                setErrors({ plateNumber: "This plate number is already registered in the fleet." });
+                setLoading(false);
+                return;
+            }
+
             await addDoc(collection(db, "vehicles"), {
-                plate_number: formState.plateNumber.toUpperCase().replace(/[-\s]/g, ''),
+                plate_number: normalizedPlate,
                 vehicle_type: formState.vehicleType,
                 make_model: formState.makeModel,
                 manufacturer: formState.manufacturer,
@@ -222,9 +231,21 @@ function EditVehiclePopup({ vehicle, onSuccess, onClose }) {
         }
         setLoading(true);
         try {
+            const normalizedPlate = formState.plateNumber.toUpperCase().replace(/[-\s]/g, '');
+            
+            // Check for duplicate plate, excluding the current vehicle
+            const q = query(collection(db, "vehicles"), where("plate_number", "==", normalizedPlate));
+            const querySnapshot = await getDocs(q);
+            const duplicate = querySnapshot.docs.find(d => d.id !== vehicle.id);
+            if (duplicate) {
+                setErrors({ plateNumber: "This plate number is already registered to another vehicle." });
+                setLoading(false);
+                return;
+            }
+
             const vehicleRef = doc(db, "vehicles", vehicle.id);
             await updateDoc(vehicleRef, {
-                plate_number: formState.plateNumber.toUpperCase().replace(/[-\s]/g, ''),
+                plate_number: normalizedPlate,
                 vehicle_type: formState.vehicleType,
                 make_model: formState.makeModel,
                 manufacturer: formState.manufacturer,
