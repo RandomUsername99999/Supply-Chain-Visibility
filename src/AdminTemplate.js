@@ -1,5 +1,5 @@
 import { SlSettings } from 'react-icons/sl';
-import { BiBell, BiUser, BiMenu, BiSearch, BiChevronDown, BiHistory } from 'react-icons/bi';
+import { BiBell, BiUser, BiMenu, BiSearch, BiChevronDown, BiHistory, BiTransferAlt } from 'react-icons/bi';
 import { GiBoxUnpacking, GiTruck, GiPathDistance } from 'react-icons/gi';
 import { MdDashboard, MdMap, MdLocationOn } from 'react-icons/md';
 import logo from './assets/images/logo.svg';
@@ -12,6 +12,8 @@ const navItems = [
   { label: "User Management", icon: <BiUser />, link: "/admin/users" },
   { label: "Vehicle Mgmt", icon: <GiTruck />, link: "/admin/vehicles" },
   { label: "Assignments", icon: <GiPathDistance />, link: "/admin/assignments" },
+  { label: "Order Management", icon: <GiBoxUnpacking />, link: "/admin/orders" },
+  { label: "Dispatch", icon: <BiTransferAlt />, link: "/admin/dispatch" },
   { label: "Reports", icon: <MdMap />, link: "/admin/reports" },
   { label: "Audit Logs", icon: <BiHistory />, link: "/admin/audit-logs" },
   { label: "My Profile", icon: <SlSettings />, link: "/admin/profile" },

@@ -8,6 +8,8 @@ import AdminDashboard from './dashboards/admin';
 import UserManagement from './dashboards/UserManagement';
 import VehicleManagement from './dashboards/VehicleManagement';
 import VehicleAssignments from './dashboards/VehicleAssignments';
+import OrderManagement from './dashboards/OrderManagement';
+import OrderAssignment from './dashboards/OrderAssignment';
 import LiveTracker from './dashboards/LiveTracker';
 import LogAudit from './dashboards/LogAudit';
 import { BiLockAlt, BiShieldQuarter, BiHide, BiShow, BiLoaderAlt, BiCheckShield, BiCube, BiEnvelope } from 'react-icons/bi';
@@ -110,6 +112,8 @@ function App() {
           <Route path='/admin/users' element={role === 'admin' ? <UserManagement /> : <Navigate to='/admin/dashboard' />} />
           <Route path='/admin/vehicles' element={role === 'admin' ? <VehicleManagement /> : <Navigate to='/admin/dashboard' />} />
           <Route path='/admin/assignments' element={<VehicleAssignments />} />
+          <Route path='/admin/orders' element={<OrderManagement />} />
+          <Route path='/admin/dispatch' element={<OrderAssignment />} />
           <Route path='/admin/audit-logs' element={role === 'admin' ? <LogAudit /> : <Navigate to='/admin/dashboard' />} />
           <Route path='/admin/reports' element={<p>Reports</p>} />
           <Route path='/admin/profile' element={<p>Profile</p>} />
